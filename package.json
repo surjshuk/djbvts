@@ -1,0 +1,28 @@
+{
+  "name": "djbvts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.17.1",
+    "bcrypt": "^6.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "next": "15.5.4",
+    "pdfkit": "^0.17.2",
+    "qrcode": "^1.5.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "24.7.2",
+    "@types/react": "19.2.2",
+    "prisma": "^6.17.1",
+    "tailwindcss": "^4",
+    "typescript": "5.9.3"
+  }
+}
