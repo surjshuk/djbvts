@@ -15,6 +15,16 @@ type ParsedRow = {
 };
 
 const KM_MATCHER = /[-+]?[0-9]*\.?[0-9]+/;
+const UPSERT_BATCH_SIZE = 50;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items];
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
+  }
+  return batches;
+}
 
 function normaliseDate(input: unknown): string | null {
   if (!input) return null;
@@ -309,8 +319,40 @@ async function persistRows(rows: ParsedRow[], uploaderEmail: string, snapshotCod
     uploadedBy: uploaderEmail,
   }));
 
-  await prisma.$transaction(async (tx) => {
-    await tx.uploadSnapshot.create({
+  const batches = chunkArray(dataRows, UPSERT_BATCH_SIZE);
+
+  if (batches.length === 0) {
+    return [];
+  }
+
+  const firstBatchOps = batches.shift()?.map((record) =>
+    prisma.report.upsert({
+      where: {
+        vehicleNo_reportDate: {
+          vehicleNo: record.vehicleNo,
+          reportDate: record.reportDate,
+        },
+      },
+      update: {
+        area: record.area,
+        tankerType: record.tankerType,
+        transporterName: record.transporterName,
+        tripDistanceKm: record.tripDistanceKm,
+        tripCount: record.tripCount,
+        snapshotCode,
+        uploadedBy: uploaderEmail,
+        uploadedAt: now,
+      },
+      create: {
+        ...record,
+        uploadedBy: uploaderEmail,
+        uploadedAt: now,
+      },
+    })
+  ) ?? [];
+
+  await prisma.$transaction([
+    prisma.uploadSnapshot.create({
       data: {
         snapshotCode,
         uploadedBy: uploaderEmail,
@@ -318,10 +360,13 @@ async function persistRows(rows: ParsedRow[], uploaderEmail: string, snapshotCod
         fileName: fileName ?? null,
         uploadedAt: now,
       },
-    });
+    }),
+    ...firstBatchOps,
+  ]);
 
-    for (const record of dataRows) {
-      await tx.report.upsert({
+  for (const batch of batches) {
+    const operations = batch.map((record) =>
+      prisma.report.upsert({
         where: {
           vehicleNo_reportDate: {
             vehicleNo: record.vehicleNo,
@@ -343,9 +388,13 @@ async function persistRows(rows: ParsedRow[], uploaderEmail: string, snapshotCod
           uploadedBy: uploaderEmail,
           uploadedAt: now,
         },
-      });
+      })
+    );
+
+    if (operations.length > 0) {
+      await prisma.$transaction(operations);
     }
-  });
+  }
 
   const refreshed = await prisma.report.findMany({
     orderBy: [
