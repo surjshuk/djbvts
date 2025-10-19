@@ -1,4 +1,5 @@
 // src/lib/report-pdf.ts
+import { promises as fs } from "fs";
 import QRCode from "qrcode";
 
 // convert mm → pt (1 inch = 25.4 mm, 1 inch = 72 pt)
@@ -17,6 +18,15 @@ type Row = {
   tripDistanceKm: string;
   tripCount: number;
 };
+
+let cachedLogo: Buffer | null = null;
+
+async function loadLogoBuffer(): Promise<Buffer> {
+  if (cachedLogo) return cachedLogo;
+  const fileUrl = new URL("./image.png", import.meta.url);
+  cachedLogo = await fs.readFile(fileUrl);
+  return cachedLogo;
+}
 
 function fmtDate(d: Date) {
   const dd = String(d.getDate()).padStart(2, "0");
@@ -92,8 +102,8 @@ export async function buildReportPdf({
     .text(` (From: ${fmtDate(dateFrom)} To: ${fmtDate(dateTo)} )`, { width: 300 });
   
   // Center: Logo from public folder
-  const logoPath = process.cwd() + '/public/image.png';
-  doc.image(logoPath, centerX - logoWidth / 2, headerY + logoOffset, { width: logoWidth });
+  const logoBuffer = await loadLogoBuffer();
+  doc.image(logoBuffer, centerX - logoWidth / 2, headerY + logoOffset, { width: logoWidth });
   
   // Right: QR code with "Scan for report details" below
   const qrX = right - qrSize;
