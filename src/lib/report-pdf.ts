@@ -6,15 +6,15 @@ const mmToPt = (mm: number) => (mm * 72) / 25.4;
 
 // Your custom page size: 297 × 241 mm
 const PAGE_WIDTH_PT  = mmToPt(297); // ≈ 841.89 pt
-const PAGE_HEIGHT_PT = mmToPt(241); // ≈ 683.15 pt
+const PAGE_HEIGHT_PT = mmToPt(281); // ≈ 683.15 pt
 
 type Row = {
   area: string;
   vehicleNo: string;
   tankerType: string;
   transporterName: string;
+  reportDate: string;
   tripDistanceKm: string;
-  engineHours: string;
   tripCount: number;
 };
 
@@ -47,101 +47,190 @@ export async function buildReportPdf({
   // set custom size (portrait). For landscape, swap width/height.
   const doc = new PDFDocument({
     size: [PAGE_WIDTH_PT, PAGE_HEIGHT_PT],
-    margin: 36,
+    margin: 24,
   });
 
   const chunks: Buffer[] = [];
   doc.on("data", (c) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 
-  // Header text
-  doc.fontSize(16).fillColor("#000").text(title, { align: "center" }).moveDown(0.2);
-  doc.fontSize(10).text(`(From: ${fmtDate(dateFrom)}  To: ${fmtDate(dateTo)})`, { align: "center" }).moveDown();
-  doc
-    .fontSize(10)
-    .text(
-      `System Generated Report, Generated at: ${fmtDate(generatedAt)} ${generatedAt.toTimeString().slice(0,5)}`,
-      { align: "center" }
-    )
-    .moveDown();
-
-  // Table layout
   const left = doc.page.margins.left;
   const right = PAGE_WIDTH_PT - doc.page.margins.right;
+  const centerX = PAGE_WIDTH_PT / 2;
+
+  // Generated at timestamp
+  const genTime = generatedAt.toTimeString().slice(0, 8);
+  doc.fontSize(9).fillColor("#000")
+    .text(
+      `System Generated Report, Generated at: ${fmtDate(generatedAt)} ${genTime}`,
+      { align: "center" }
+    )
+    .moveDown(0.1);
+
+  // Capture headerY after the timestamp
+  const headerY = doc.y;
+
+  // Calculate heights for vertical centering
+  const logoWidth = 100;
+  const logoHeight = 30; // Adjust based on your logo's aspect ratio
+  const qrSize = 80;
+  const qrWithTextHeight = qrSize + 2 + 10; // QR + spacing + text height
+  const titleHeight = 20; // Approximate height for title text
+  
+  // Find the tallest element
+  const maxHeight = Math.max(titleHeight, logoHeight, qrWithTextHeight);
+  
+  // Calculate vertical offsets to center each element
+  const titleOffset = (maxHeight - titleHeight) / 2;
+  const logoOffset = (maxHeight - logoHeight) / 2;
+  const qrOffset = (maxHeight - qrWithTextHeight) / 2;
+  
+  // Left: Title and Date range
+  doc.fontSize(9).font('Helvetica').fillColor("#000")
+    .text(title, left, headerY + titleOffset, { continued: true })
+    .fontSize(9).font('Helvetica')
+    .text(` (From: ${fmtDate(dateFrom)} To: ${fmtDate(dateTo)} )`, { width: 300 });
+  
+  // Center: Logo from public folder
+  const logoPath = process.cwd() + '/public/image.png';
+  doc.image(logoPath, centerX - logoWidth / 2, headerY + logoOffset, { width: logoWidth });
+  
+  // Right: QR code with "Scan for report details" below
+  const qrX = right - qrSize;
+  const qrDataUrl = await QRCode.toDataURL(verificationUrl, { width: 200 });
+  const qrBuf = Buffer.from(qrDataUrl.split(",")[1], "base64");
+  doc.image(qrBuf, qrX, headerY + qrOffset, { width: qrSize });
+  
+  // "Scan for report details" below QR
+  doc.fontSize(7).fillColor("#666")
+    .text("Scan for report details", qrX - 10, headerY + qrOffset + qrSize + 2, { width: qrSize + 20, align: "center" });
+  
+  // Move down past the header section
+  doc.y = headerY + maxHeight + 10;
+  doc.moveDown(0.5);
+  
+  
+
+
+  // Table layout
   const tableWidth = right - left;
 
   const cols = [
-    { label: "S.No", width: 50 },
-    { label: "Area", width: 110 },
-    { label: "Vehicle No.", width: 110 },
-    { label: "Tanker Type", width: 110 },
-    { label: "Transporter Name", width: 150 },
-    { label: "Report Date", width: 100 },
+    { label: "S.No", width: 40 },
+    { label: "Area", width: 80 },
+    { label: "Vehicle No.", width: 100 },
+    { label: "Tanker Type", width: 100 },
+    { label: "Transporter Name", width: 120 },
+    { label: "Report Date", width: 150 },
     { label: "Trip Distance / Engine Hr", width: 150 },
     { label: "Trip Count", width: 70 },
   ];
 
-  // If widths don't fit exactly, you can compute widths proportionally using tableWidth.
-
-  // Draw BLUE header band and white titles
-  let y = doc.y + 10;
-  const headerHeight = 22;
-  doc
-    .save()
+  // Draw header row with light gray background
+  let y = doc.y;
+  const headerHeight = 20;
+  
+  doc.save()
     .rect(left, y, tableWidth, headerHeight)
-    .fill("#1976d2"); // blue header (e.g., Material blue 700)
+    .fill("#2880ba");
 
-  // Column titles in white
-  doc.fillColor("#fff").fontSize(9);
-  let x = left;
+  // Column titles in white, bold
+  doc.fillColor("#fff").fontSize(8).font('Helvetica-Bold');
+  let x = left + 3;
   for (const c of cols) {
-    doc.text(c.label, x + 4, y + 5, { width: c.width - 8, align: "left" });
+    doc.text(c.label, x, y + 5, { width: c.width - 6, align: "left" });
     x += c.width;
   }
   doc.restore();
 
-  // Divider line under header
+  // Sub-header row (lighter color) - shows totals
   y += headerHeight;
-  doc.moveTo(left, y).lineTo(right, y).strokeColor("#999").stroke();
+  const subHeaderHeight = 20;
+  doc.save()
+    .rect(left, y, tableWidth, subHeaderHeight)
+    .fill("#babae8"); // Lighter blue than header
 
-  // Body rows in black
-  y += 6;
-  doc.fillColor("#000").fontSize(9);
+  doc.fillColor("#000").fontSize(8).font('Helvetica-Bold');
+  
+  // Calculate total km from all rows
+  const totalKm = rows.reduce((sum, r) => sum + parseFloat(r.tripDistanceKm), 0).toFixed(2);
+  
+  x = left + 3;
+  const subHeaderCells = [
+    "", // S.No
+    rows[0]?.area || "", // Area (from first row)
+    rows[0]?.vehicleNo || "", // Vehicle No
+    rows[0]?.tankerType || "", // Tanker Type
+    rows[0]?.transporterName || "", // Transporter Name
+    `${fmtDate(dateFrom)} - ${fmtDate(dateTo)}`, // Date range
+    `${totalKm} km`, // Total distance
+    String(rows.length), // Total trip count
+  ];
+  
+  subHeaderCells.forEach((val, idx) => {
+    const w = cols[idx].width;
+    doc.text(val, x, y + 5, { width: w - 6, align: "left" });
+    x += w;
+  });
+  doc.restore();
+
+  // Body rows with alternating colors
+  y += subHeaderHeight;
+  doc.fontSize(8).font('Helvetica');
+  
   rows.forEach((r, i) => {
-    x = left;
+    const rowHeight = 18;
+    
+    // Alternate row background: white and light gray
+    const bgColor = i % 2 === 0 ? "#ffffff" : "#f5f5f5";
+    doc.save()
+      .rect(left, y, tableWidth, rowHeight)
+      .fill(bgColor);
+    doc.restore();
+    
+    // Text color
+    doc.fillColor("#000");
+    
+    x = left + 3;
     const cells = [
       String(i + 1),
       r.area,
       r.vehicleNo,
       r.tankerType,
       r.transporterName,
-      fmtDate(dateFrom),
-      `${r.tripDistanceKm} km / ${r.engineHours} hr`,
+      r.reportDate,
+      r.tripDistanceKm,
       String(r.tripCount),
     ];
+    
     cells.forEach((val, idx) => {
       const w = cols[idx].width;
-      doc.text(val, x + 4, y, { width: w - 8, align: "left" });
+      doc.text(val, x, y + 5, { width: w - 6, align: "left", lineBreak: false });
       x += w;
     });
-    y += 16;
-    // optional row lines:
-    // doc.moveTo(left, y).lineTo(right, y).strokeColor("#eee").stroke();
+    
+    y += rowHeight;
   });
 
-  // QR footer (unchanged)
-  const qrDataUrl = await QRCode.toDataURL(verificationUrl);
-  const qrBuf = Buffer.from(qrDataUrl.split(",")[1], "base64");
-  const footerY = PAGE_HEIGHT_PT - doc.page.margins.bottom - 10;
-  doc.image(qrBuf, left, footerY - 80, { width: 70 });
-  doc
-    .fontSize(9)
+  // QR footer
+  const footerY = PAGE_HEIGHT_PT - doc.page.margins.bottom - 60;
+    
+  const genTimeFooter = generatedAt.toTimeString().slice(0, 8);
+  doc.fontSize(8).font('Helvetica').fillColor("#000")
     .text(
-      `Generated by :- ${generatedByEmail} , Report Generated At :- ${fmtDate(generatedAt)} ${generatedAt.toTimeString().slice(0,5)}`,
-      left + 90,
-      footerY - 50,
-      { width: tableWidth - 90 }
+      `Generated by :- ${generatedByEmail} , Report Generated At :- ${fmtDate(generatedAt)} ${genTimeFooter}`,
+      left,
+      footerY + 15,
+      { width: tableWidth - 60 }
     );
+  
+  // Page number
+  doc.text(
+    `Page 1 of 1`,
+    right - 60,
+    footerY + 15,
+    { width: 60, align: "right" }
+  );
 
   doc.end();
   return done;

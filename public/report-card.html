@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DJB Report Verification</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f5f5f5;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+
+      .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        width: 95%;
+        max-width: 840px;
+        padding: 20px;
+      }
+
+      @media screen and (max-width: 768px) {
+        html,
+        body {
+          height: 100%;
+          width: 100%;
+          overflow-x: hidden;
+        }
+
+        body {
+          display: block;
+          padding: 0;
+        }
+
+        .card {
+          width: 100%;
+          min-height: 100vh;
+          max-width: none;
+          padding: 15px;
+          margin: 0;
+          border-radius: 0;
+          box-shadow: none;
+          box-sizing: border-box;
+        }
+
+        .title {
+          font-size: 18px;
+        }
+
+        .logo {
+          width: 150px;
+        }
+      }
+
+      .header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 0;
+        width: 100%;
+      }
+
+      .mobile-info-row {
+        display: none;
+      }
+
+      .header-left {
+        text-align: left;
+        font-size: 12px;
+        color: #555;
+        width: 20%;
+      }
+
+      .header-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        width: 60%;
+      }
+
+      .header-right {
+        text-align: right;
+        font-size: 12px;
+        color: #555;
+        width: 20%;
+      }
+
+      @media screen and (max-width: 768px) {
+        .header {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .header-center {
+          width: 100%;
+          text-align: center;
+          margin-bottom: 10px;
+        }
+
+        .header .header-left,
+        .header .header-right {
+          display: none;
+        }
+
+        .mobile-info-row {
+          display: flex;
+          width: 100%;
+          justify-content: space-between;
+          margin-bottom: 15px;
+        }
+
+        .mobile-info-row .header-left,
+        .mobile-info-row .header-right {
+          width: 50%;
+          text-align: left;
+        }
+
+        .mobile-info-row .header-right {
+          text-align: right;
+        }
+      }
+
+      .header-left .value,
+      .header-right .value {
+        white-space: nowrap;
+        font-size: 14px;
+      }
+
+      @media screen and (max-width: 768px) {
+        .header-left .label,
+        .header-right .label {
+          font-size: 11px;
+        }
+
+        .header-left .value,
+        .header-right .value {
+          font-size: 12px;
+        }
+      }
+
+      @media screen and (max-width: 375px) {
+        .header-left .label,
+        .header-right .label {
+          font-size: 10px;
+        }
+
+        .header-left .value,
+        .header-right .value {
+          font-size: 11px;
+        }
+      }
+
+      .logo {
+        width: 200px;
+        height: auto;
+        margin-bottom: 10px;
+      }
+
+      .title {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 0;
+        color: #003366;
+      }
+
+      .stat-blocks {
+        display: flex;
+        justify-content: space-between;
+        margin: 20px 0;
+        gap: 15px;
+      }
+
+      .stat-block {
+        background-color: #f0f7ff;
+        border-radius: 6px;
+        padding: 15px;
+        flex: 1;
+        text-align: center;
+        border-left: 4px solid #1976d2;
+      }
+
+      @media screen and (max-width: 768px) {
+        .stat-blocks {
+          flex-direction: row;
+          flex-wrap: nowrap;
+          gap: 3px;
+        }
+
+        .stat-block {
+          padding: 6px 3px;
+          font-size: 0.85em;
+        }
+
+        .stat-value {
+          font-size: 11px;
+          margin-bottom: 2px;
+          font-weight: normal;
+          white-space: nowrap;
+        }
+
+        .stat-label {
+          font-size: 10px;
+        }
+      }
+
+      @media screen and (max-width: 375px) {
+        .stat-blocks {
+          gap: 2px;
+        }
+
+        .stat-block {
+          padding: 4px 2px;
+        }
+
+        .stat-value {
+          font-size: 10px;
+          margin-bottom: 1px;
+          letter-spacing: -0.3px;
+        }
+
+        .stat-label {
+          font-size: 8px;
+        }
+      }
+
+      .stat-value {
+        font-size: 20px;
+        font-weight: bold;
+        color: #1976d2;
+        margin-bottom: 5px;
+        white-space: nowrap;
+      }
+
+      .stat-label {
+        font-size: 14px;
+        color: #555;
+        white-space: nowrap;
+      }
+
+      .section-title {
+        font-size: 18px;
+        font-weight: bold;
+        margin: 20px 0 10px 0;
+        color: #003366;
+      }
+
+      .table-container {
+        margin-top: 20px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+        min-width: 650px;
+      }
+
+      th {
+        background-color: #1976d2;
+        color: #fff;
+        font-weight: bold;
+        text-align: left;
+        padding: 8px;
+      }
+
+      @media screen and (max-width: 768px) {
+        .table-container::before {
+          content: "← Scroll horizontally →";
+          display: block;
+          text-align: center;
+          font-size: 12px;
+          color: #666;
+          padding: 5px 0;
+        }
+      }
+
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+      }
+
+      tr:nth-child(even) {
+        background-color: #f2f2f2;
+      }
+
+      tr:hover {
+        background-color: #e3f2fd;
+      }
+
+      .date-cell {
+        white-space: nowrap;
+      }
+
+      .recalculation-cell {
+        color: #d32f2f;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+
+      .recalculation-cell:hover {
+        background-color: rgba(255, 0, 0, 0.3);
+      }
+
+      .recalculated-row {
+        background-color: rgba(255, 0, 0, 0.1) !important;
+        transition: background-color 0.2s;
+      }
+
+      .recalculated-row:hover {
+        background-color: rgba(255, 0, 0, 0.15) !important;
+      }
+
+      .footer {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 12px;
+        color: #999;
+        border-top: 1px solid #eee;
+        padding-top: 15px;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 40px;
+      }
+
+      .error {
+        color: #d32f2f;
+        text-align: center;
+      }
+
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+      }
+
+      .modal-content {
+        background-color: #fefefe;
+        margin: 10% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 90%;
+        max-width: 800px;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .modal-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: #003366;
+      }
+
+      .close-modal {
+        color: #aaa;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+
+      .close-modal:hover {
+        color: #555;
+      }
+
+      .modal-table-container {
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="report-card">
+      <div class="loading">Loading report data...</div>
+    </div>
+
+    <div id="recalculationModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title">Recalculation History</div>
+          <span class="close-modal">&times;</span>
+        </div>
+        <div class="modal-table-container">
+          <table id="recalculationTable">
+            <thead>
+              <tr>
+                <th>S.No</th>
+                <th>Vehicle Number</th>
+                <th>From Date</th>
+                <th>To Date</th>
+                <th>Regenerated By</th>
+                <th>Regeneration Time</th>
+                <th>Reason</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody id="recalculationTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const reportCard = document.getElementById('report-card');
+        const modal = document.getElementById('recalculationModal');
+        const closeModal = document.querySelector('.close-modal');
+
+        closeModal.addEventListener('click', function () {
+          modal.style.display = 'none';
+        });
+
+        window.addEventListener('click', function (event) {
+          if (event.target === modal) {
+            modal.style.display = 'none';
+          }
+        });
+
+        window.showRecalculationHistory = function (cell) {
+          const vehicleNumber = cell.getAttribute('data-vehicle-number');
+          const fromDate = cell.getAttribute('data-from-date');
+          const toDate = cell.getAttribute('data-to-date');
+
+          if (!vehicleNumber) {
+            alert('Vehicle information unavailable');
+            return;
+          }
+
+          fetch(`https://djbvts.watsoo.com/backend/api/v1/trip/trails?vehicleNumber=${vehicleNumber}&from=${fromDate}&to=${toDate}`)
+            .then((response) => response.json())
+            .then((response) => {
+              if (response && response.length > 0) {
+                const tableBody = document.getElementById('recalculationTableBody');
+                tableBody.innerHTML = '';
+
+                response.forEach((item, index) => {
+                  const row = document.createElement('tr');
+                  row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${item.vehicleNumber || '-'}</td>
+                    <td class="date-cell">${formatDate(item.fromDate)}</td>
+                    <td class="date-cell">${formatDate(item.toDate)}</td>
+                    <td>${item.reCalculatedBy || '-'}</td>
+                    <td>${item.regenerateTime ? new Date(item.regenerateTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-'}</td>
+                    <td>${item.reason || '-'}</td>
+                    <td>${item.reasonToRecalculate || '-'}</td>
+                  `;
+                  tableBody.appendChild(row);
+                });
+
+                modal.style.display = 'block';
+              } else {
+                alert('No recalculation history found');
+              }
+            })
+            .catch((error) => {
+              console.error('Error fetching recalculation history:', error);
+              alert('Failed to load recalculation history');
+            });
+        };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const qrCode = urlParams.get('code');
+
+        if (!qrCode) {
+          reportCard.innerHTML = '<div class="error">Invalid verification link.</div>';
+          return;
+        }
+
+        fetch(`/api/reports/verify/${encodeURIComponent(qrCode)}`)
+          .then((response) => response.json())
+          .then((payload) => {
+            if (!payload || !payload.success || !payload.data) {
+              throw new Error('Verification data not available');
+            }
+
+            renderReportCard(payload.data);
+          })
+          .catch((error) => {
+            console.error('Error fetching report data:', error);
+            reportCard.innerHTML = '<div class="error">Failed to load report data.</div>';
+          });
+
+        function formatDate(dateString) {
+          if (!dateString) return '-';
+          const date = new Date(dateString);
+          if (Number.isNaN(date.valueOf())) return dateString;
+          return date.toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            timeZone: 'Asia/Kolkata',
+          });
+        }
+
+        function formatDateWithTime(dateString) {
+          if (!dateString) return '-';
+          const date = new Date(dateString);
+          if (Number.isNaN(date.valueOf())) return dateString;
+
+          const options = {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'Asia/Kolkata',
+          };
+
+          if (window.innerWidth > 768) {
+            options.second = '2-digit';
+          }
+
+          return date.toLocaleString('en-IN', options).replace(',', ' ');
+        }
+
+        function renderReportCard(data) {
+          const totalDistance = Number(data.totalDistance || 0).toFixed(2);
+          const fromDate = formatDate(data.fromDate);
+          const toDate = formatDate(data.toDate);
+
+          const vehicleRows = (data.vehicleReports || []).map((vehicle, index) => {
+            const recalculated = (vehicle.vehicleRecalculateCount || 0) > 0;
+            const distanceFormatted = Number(vehicle.totalDistance || 0).toFixed(2);
+
+            return `
+              <tr class="${recalculated ? 'recalculated-row' : ''}">
+                <td>${index + 1}</td>
+                <td>${vehicle.area || '-'}</td>
+                <td>${vehicle.vehicleNumber || '-'}</td>
+                <td>${vehicle.tankerType || '-'}</td>
+                <td class="date-cell">${fromDate} - ${toDate}</td>
+                <td>${distanceFormatted} km</td>
+                <td>${vehicle.totalTrips || 0}</td>
+                <td
+                  class="${recalculated ? 'recalculation-cell' : ''}"
+                  data-vehicle-number="${vehicle.vehicleNumber || ''}"
+                  data-from-date="${data.fromDate ? new Date(data.fromDate).getTime() : ''}"
+                  data-to-date="${data.toDate ? new Date(data.toDate).getTime() : ''}"
+                  onclick="${recalculated ? 'showRecalculationHistory(this)' : ''}"
+                  style="text-align: center; vertical-align: middle;"
+                >
+                  ${recalculated ? vehicle.vehicleRecalculateCount : 'N/A'}
+                </td>
+              </tr>
+            `;
+          }).join('');
+
+          const tableHtml = vehicleRows
+            ? `
+              <div class="section-title">Vehicle Report Details</div>
+              <div class="stat-blocks">
+                <div class="stat-block">
+                  <div class="stat-value">${data.totalTrips || 0}</div>
+                  <div class="stat-label">Total Trips</div>
+                </div>
+                <div class="stat-block">
+                  <div class="stat-value">${data.totalVehicleReports || 0}</div>
+                  <div class="stat-label">Total Vehicles</div>
+                </div>
+                <div class="stat-block">
+                  <div class="stat-value">${totalDistance} km</div>
+                  <div class="stat-label">Total Distance</div>
+                </div>
+              </div>
+
+              <div class="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>S.No</th>
+                      <th>Area</th>
+                      <th>Vehicle No.</th>
+                      <th>Tanker Type</th>
+                      <th>Report Date</th>
+                      <th>Trip Distance / Engine Hr</th>
+                      <th>Trip Count</th>
+                      <th>Re-Calculation Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>${vehicleRows}</tbody>
+                </table>
+              </div>
+            `
+            : '<div class="error">No vehicle data available for this report.</div>';
+
+          reportCard.innerHTML = `
+            <div class="header">
+              <div class="header-left">
+                <div class="label">Generation Time</div>
+                <div class="value">${formatDateWithTime(data.generationTime)}</div>
+              </div>
+
+              <div class="header-center">
+                <img src="/image.png" alt="DJB Logo" class="logo" />
+                <h1 class="title">Delhi Jal Board Distance Report</h1>
+              </div>
+
+              <div class="header-right">
+                <div class="label">Generated By</div>
+                <div class="value">${data.generatedBy || '-'}</div>
+              </div>
+            </div>
+
+            <div class="mobile-info-row">
+              <div class="header-left">
+                <div class="label">Generation Time</div>
+                <div class="value">${formatDateWithTime(data.generationTime)}</div>
+              </div>
+
+              <div class="header-right">
+                <div class="label">Generated By</div>
+                <div class="value">${data.generatedBy || '-'}</div>
+              </div>
+            </div>
+
+            ${tableHtml}
+
+            <div class="footer">
+              This report is system-generated by the DJB Management System.
+            </div>
+          `;
+        }
+      });
+    </script>
+  </body>
+</html>

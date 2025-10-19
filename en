@@ -1,0 +1,3 @@
+DATABASE_URL="file:./dev.db"
+JWT_SECRET="dev_change_me"   # use a long random string in prod
+BASE_URL="http://localhost:3000" 

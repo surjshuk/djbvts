@@ -16,36 +16,72 @@ model User {
   name      String?
   role      Role     @default(USER)
   createdAt DateTime @default(now())
-  reports   Report[]
+  
+  // Relations
+  uploadedReports Report[] @relation("UploadedReports")
+  generatedPdfs   PdfGeneration[] @relation("GeneratedPdfs")
 }
 
 model Report {
-  id               String      @id @default(cuid())
-  title            String      @default("Daily Distance Report")
-  dateFrom         DateTime
-  dateTo           DateTime
-  generatedAt      DateTime    @default(now())
-  generatedByEmail String
-  verificationSlug String      @unique
-  rows             ReportRow[]
-
-  ownerId String?
-  owner   User?   @relation(fields: [ownerId], references: [id])
-}
-
-model ReportRow {
-  id       String @id @default(cuid())
-  reportId String
-  report   Report @relation(fields: [reportId], references: [id])
-
-  area            String
+  id              String   @id @default(cuid())
+  snapshotCode    String   // Unique code for each upload batch
   vehicleNo       String
+  area            String
   tankerType      String
   transporterName String
-  // For SQLite: use Decimal without @db.Decimal(...)
-  tripDistanceKm  Decimal
-  engineHours     Decimal
+  reportDate      String   // Format: DD-MM-YYYY
+  tripDistanceKm  String   // Stored as string "123.45 km"
   tripCount       Int
+  uploadedBy      String
+  uploadedAt      DateTime @default(now())
+
+  // Relations
+  uploader        User     @relation("UploadedReports", fields: [uploadedBy], references: [email])
+
+  @@index([vehicleNo])
+  @@index([area])
+  @@index([snapshotCode])
+  @@index([uploadedBy])
+  @@index([reportDate])
+  @@unique([vehicleNo, reportDate])
+}
+
+model PdfGeneration {
+  id               String   @id @default(cuid())
+  verificationCode String   @unique
+  verificationUrl  String
+  dateFrom         String
+  dateTo           String
+  generatedBy      String
+  generatedAt      DateTime @default(now())
+  
+  // Filter metadata
+  filterVehicle    String?  // null or "all" means no filter
+  filterArea       String?
+  filterMonth      String?  // Format: YYYY-MM
+  
+  // PDF storage (optional - can use file storage instead)
+  pdfBase64        String?  // For small PDFs, or use S3/file system
+  recordCount      Int      // Number of records in this report
+  
+  // Relations
+  generator        User     @relation("GeneratedPdfs", fields: [generatedBy], references: [email])
+  
+  @@index([verificationCode])
+  @@index([generatedBy])
+  @@index([generatedAt])
+}
+
+model UploadSnapshot {
+  id           String   @id @default(cuid())
+  snapshotCode String   @unique
+  uploadedBy   String
+  uploadedAt   DateTime @default(now())
+  recordCount  Int      // Total records in this upload
+  fileName     String?  // Original filename
+  
+  @@index([snapshotCode])
+  @@index([uploadedBy])
 }
 
 enum Role {
