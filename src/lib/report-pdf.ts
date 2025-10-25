@@ -59,7 +59,7 @@ export async function buildReportPdf({
 
   const doc = new PDFDocument({
     size: [PAGE_WIDTH_PT, BASE_PAGE_HEIGHT_PT],
-    margin: 24,
+    margin: 20,
   });
 
   const chunks: Buffer[] = [];
@@ -97,28 +97,30 @@ export async function buildReportPdf({
 
     const headerY = doc.y;
     const logoWidth = 140;
-    const logoHeight = 35;
+    const logoHeight = 45;
     const stretchedLogoHeight = logoHeight * 1.5;
-    const qrSize = 120;
+    const qrSize = 140;
     const qrWithTextHeight = qrSize + 2 + 10;
-    const titleLine = `${title} (From: ${fmtDate(dateFrom)} To: ${fmtDate(dateTo)} )`;
+    const rangeStart = new Date(dateFrom.getFullYear(), dateFrom.getMonth(), 1);
+    const rangeEnd = new Date(dateTo.getFullYear(), dateTo.getMonth() + 1, 0);
+    const titleLine = `${title} (From: ${fmtDate(rangeStart)} To: ${fmtDate(rangeEnd)} )`;
 
-    doc.fontSize(9).font("Helvetica-Bold");
+    doc.fontSize(12).font("Helvetica-Bold");
     const titleBlockHeight = doc.heightOfString(titleLine, { width: 300 });
     const leftBlockHeight = stretchedLogoHeight + 6 + titleBlockHeight;
     const headerHeight = Math.max(leftBlockHeight, qrWithTextHeight);
 
-    const logoTop = headerY + headerHeight - leftBlockHeight;
+    const logoTop = headerY + headerHeight - leftBlockHeight + 17;
     const titleY = logoTop + stretchedLogoHeight + 6;
     doc.image(logoBuffer, left, logoTop, { width: logoWidth, height: stretchedLogoHeight });
 
-    doc.fillColor("#000").text(titleLine, left, titleY, { width: 300 });
+    doc.fillColor("#000").text(titleLine, left, titleY, { width: 400 });
 
     const qrX = right - qrSize;
     const qrTop = headerY + headerHeight - qrWithTextHeight;
     doc.image(qrBuf, qrX, qrTop, { width: qrSize });
 
-    doc.fontSize(7)
+    doc.fontSize(10)
       .font("Helvetica-Bold")
       .fillColor("#000")
       .text("Scan for report details", qrX - 15, qrTop + qrSize + 2, {
@@ -137,7 +139,7 @@ export async function buildReportPdf({
     doc.save().rect(left, currentY, tableWidth, headerHeight).fill("#2880ba");
     doc.restore();
 
-    doc.fillColor("#fff").fontSize(7).font("Helvetica-Bold");
+    doc.fillColor("#fff").fontSize(8).font("Helvetica-Bold");
     let x = left + 3;
     for (const c of columns) {
       doc.text(c.label, x, currentY + 5, { width: c.width - 6, align: "left" });
@@ -151,7 +153,7 @@ export async function buildReportPdf({
       doc.save().rect(left, currentY, tableWidth, subHeaderHeight).fill("#babae8");
       doc.restore();
 
-      doc.fillColor("#858484").fontSize(8).font("Helvetica-Bold");
+      doc.fillColor("#50525f").fontSize(8).font("Helvetica");
       const subHeaderCells = [
         "",
         firstRow?.area || "",
@@ -174,7 +176,7 @@ export async function buildReportPdf({
       doc.y = currentY;
     }
 
-    doc.fontSize(7).font("Helvetica");
+    doc.fontSize(8).font("Helvetica");
   };
 
   const drawRows = (left: number, tableWidth: number, pageRows: Row[], startIndex: number) => {
@@ -185,7 +187,7 @@ export async function buildReportPdf({
       doc.save().rect(left, currentY, tableWidth, ROW_HEIGHT_PT).fill(bgColor);
       doc.restore();
 
-      doc.fillColor("#858484");
+      doc.fillColor("#2c2c2c");
       let x = left + 3;
       const cells = [
         String(globalIndex + 1),
@@ -210,12 +212,9 @@ export async function buildReportPdf({
   };
 
   const drawFooter = (left: number, right: number, tableWidth: number, pageNumber: number) => {
-    const footerY = Math.min(
-      doc.y + FOOTER_GAP_PT,
-      doc.page.height - doc.page.margins.bottom - 40
-    );
+    const footerY = doc.page.height - doc.page.margins.bottom - 40
 
-    doc.fontSize(7)
+    doc.fontSize(10)
       .font("Helvetica-Bold")
       .fillColor("#000")
       .text(

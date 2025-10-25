@@ -1,13 +1,61 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+
+type ReportRow = {
+  area: string;
+  vehicleNo: string;
+  tankerType: string;
+  transporterName: string;
+  reportDate: string;
+  tripDistanceKm: string;
+  tripCount: number;
+};
+
+type ReportRowForm = Omit<ReportRow, "tripCount"> & { tripCount: string };
+
+const EMPTY_FORM: ReportRowForm = {
+  area: "",
+  vehicleNo: "",
+  tankerType: "",
+  transporterName: "",
+  reportDate: "",
+  tripDistanceKm: "",
+  tripCount: "",
+};
+
+const formFromRow = (row: ReportRow): ReportRowForm => ({
+  area: row.area ?? "",
+  vehicleNo: row.vehicleNo ?? "",
+  tankerType: row.tankerType ?? "",
+  transporterName: row.transporterName ?? "",
+  reportDate: (() => {
+    const date = new Date(row.reportDate);
+    if (!Number.isNaN(date.valueOf())) {
+      return date.toISOString().split("T")[0];
+    }
+    return row.reportDate ?? "";
+  })(),
+  tripDistanceKm: row.tripDistanceKm ?? "",
+  tripCount: row.tripCount != null ? String(row.tripCount) : "",
+});
+
+const rowFromForm = (form: ReportRowForm): ReportRow => ({
+  area: form.area.trim(),
+  vehicleNo: form.vehicleNo.trim(),
+  tankerType: form.tankerType.trim(),
+  transporterName: form.transporterName.trim(),
+  reportDate: form.reportDate,
+  tripDistanceKm: form.tripDistanceKm.trim(),
+  tripCount: form.tripCount ? Number(form.tripCount) : 0,
+});
 
 export default function ReportsPage() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [data, setData] = useState([]);
-  const [filteredData, setFilteredData] = useState([]);
+  const [data, setData] = useState<ReportRow[]>([]);
+  const [filteredData, setFilteredData] = useState<ReportRow[]>([]);
   const [vehicles, setVehicles] = useState<string[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
   const [months, setMonths] = useState<string[]>([]);
@@ -23,6 +71,10 @@ export default function ReportsPage() {
   
   const [generating, setGenerating] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [formState, setFormState] = useState<ReportRowForm>(EMPTY_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -70,7 +122,7 @@ export default function ReportsPage() {
       }
       const res = await fetch("/api/reports/data");
       if (res.ok) {
-        const records = await res.json();
+        const records = (await res.json()) as ReportRow[];
         setData(records);
         extractFilterOptions(records);
       }
@@ -79,7 +131,7 @@ export default function ReportsPage() {
     }
   }
 
-  function extractFilterOptions(records: any[]) {
+  function extractFilterOptions(records: ReportRow[]) {
     const vehicleSet = new Set<string>();
     const areaSet = new Set<string>();
     const monthSet = new Set<string>();
@@ -143,6 +195,103 @@ export default function ReportsPage() {
 
     setFilteredData(filtered);
   }
+
+  const commitDataChanges = (updater: (rows: ReportRow[]) => ReportRow[]) => {
+    setData((prev) => {
+      const next = updater(prev);
+      if (next === prev) return prev;
+      extractFilterOptions(next);
+      return next;
+    });
+  };
+
+  const startNewRow = () => {
+    setEditingIndex(null);
+    setFormState(EMPTY_FORM);
+    setFormError(null);
+    setIsFormOpen(true);
+  };
+
+  const startEditRow = (row: ReportRow) => {
+    const idx = data.indexOf(row);
+    if (idx === -1) return;
+    setEditingIndex(idx);
+    setFormState(formFromRow(row));
+    setFormError(null);
+    setIsFormOpen(true);
+  };
+
+  const handleDeleteRow = (row: ReportRow) => {
+    const idx = data.indexOf(row);
+    if (idx === -1) return;
+    commitDataChanges((prev) => {
+      if (idx < 0 || idx >= prev.length) return prev;
+      const next = [...prev];
+      next.splice(idx, 1);
+      return next;
+    });
+    setFormError(null);
+    setEditingIndex((current) => {
+      if (current == null) return current;
+      if (current === idx) {
+        setIsFormOpen(false);
+        setFormState(EMPTY_FORM);
+        return null;
+      }
+      return current > idx ? current - 1 : current;
+    });
+  };
+
+  const handleFormCancel = () => {
+    setIsFormOpen(false);
+    setEditingIndex(null);
+    setFormState(EMPTY_FORM);
+    setFormError(null);
+  };
+
+  const handleFormChange = (field: keyof ReportRowForm, value: string) => {
+    if (field === "tripCount") {
+      if (value === "" || /^[0-9]+$/.test(value)) {
+        setFormState((prev) => ({ ...prev, [field]: value }));
+      }
+      return;
+    }
+    setFormState((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+
+    if (!formState.area.trim()) {
+      setFormError("Area is required.");
+      return;
+    }
+    if (!formState.vehicleNo.trim()) {
+      setFormError("Vehicle number is required.");
+      return;
+    }
+    if (!formState.reportDate) {
+      setFormError("Report date is required.");
+      return;
+    }
+
+    const normalized = rowFromForm(formState);
+
+    if (editingIndex != null) {
+      const targetIndex = editingIndex;
+      commitDataChanges((prev) => {
+        if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+        const next = [...prev];
+        next[targetIndex] = normalized;
+        return next;
+      });
+    } else {
+      commitDataChanges((prev) => [...prev, normalized]);
+    }
+
+    handleFormCancel();
+  };
 
   const toggleVehicleSelection = (value: string) => {
     setSelectedVehicles((prev) =>
@@ -216,6 +365,11 @@ export default function ReportsPage() {
         .sort((a, b) => a.getTime() - b.getTime());
       const dateFrom = dates[0];
       const dateTo = dates[dates.length - 1];
+      if (!dateFrom || !dateTo) {
+        throw new Error("Filtered rows do not contain valid dates.");
+      }
+      const rangeStart = new Date(dateFrom.getFullYear(), dateFrom.getMonth(), 1);
+      const rangeEnd = new Date(dateTo.getFullYear(), dateTo.getMonth() + 1, 0);
 
       if (!userEmail) {
         throw new Error("Missing logged in user email");
@@ -225,8 +379,8 @@ export default function ReportsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dateFrom: dateFrom.toISOString().split('T')[0],
-          dateTo: dateTo.toISOString().split('T')[0],
+          dateFrom: rangeStart.toISOString().split("T")[0],
+          dateTo: rangeEnd.toISOString().split("T")[0],
           generatedByEmail: userEmail,
           filters: {
             vehicles: selectedVehicles,
@@ -250,7 +404,9 @@ export default function ReportsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `report_${dateFrom.toISOString().split('T')[0]}_to_${dateTo.toISOString().split('T')[0]}.pdf`;
+      const now = new Date();
+      const stamp = `${String(now.getDate()).padStart(2, "0")}-${String(now.getMonth() + 1).padStart(2, "0")}-${now.getFullYear()}T${String(now.getHours()).padStart(2, "0")}_${String(now.getMinutes()).padStart(2, "0")}_${String(now.getSeconds()).padStart(2, "0")}`;
+      a.download = `DailyDistanceReport(${stamp}).pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -381,6 +537,18 @@ export default function ReportsPage() {
 
       {/* Data Table */}
       <div className="border rounded-lg bg-white shadow overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <span className="text-sm text-gray-700">{filteredData.length} rows selected</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={startNewRow}
+              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors"
+            >
+              New Row
+            </button>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -393,6 +561,7 @@ export default function ReportsPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Report Date</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distance</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trips</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -406,11 +575,127 @@ export default function ReportsPage() {
                   <td className="px-4 py-3 text-sm">{formatDisplayDate(row.reportDate)}</td>
                   <td className="px-4 py-3 text-sm">{row.tripDistanceKm}</td>
                   <td className="px-4 py-3 text-sm">{row.tripCount}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditRow(row)}
+                        className="px-2 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRow(row)}
+                        className="px-2 py-1 text-xs font-medium text-red-600 border border-red-600 rounded hover:bg-red-50 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {isFormOpen && (
+          <div className="border-t border-gray-200 bg-white">
+            <form onSubmit={handleFormSubmit} className="p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {editingIndex != null ? "Edit Row" : "Add New Row"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleFormCancel}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Close
+                </button>
+              </div>
+              {formError && <p className="text-sm text-red-600">{formError}</p>}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Area
+                  <input
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.area}
+                    onChange={(e) => handleFormChange("area", e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Vehicle No.
+                  <input
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.vehicleNo}
+                    onChange={(e) => handleFormChange("vehicleNo", e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Tanker Type
+                  <input
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.tankerType}
+                    onChange={(e) => handleFormChange("tankerType", e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Transporter
+                  <input
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.transporterName}
+                    onChange={(e) => handleFormChange("transporterName", e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Report Date
+                  <input
+                    type="date"
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.reportDate}
+                    onChange={(e) => handleFormChange("reportDate", e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Distance (km)
+                  <input
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.tripDistanceKm}
+                    onChange={(e) => handleFormChange("tripDistanceKm", e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Trip Count
+                  <input
+                    type="number"
+                    min="0"
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formState.tripCount}
+                    onChange={(e) => handleFormChange("tripCount", e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleFormCancel}
+                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                >
+                  {editingIndex != null ? "Save Changes" : "Add Row"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </main>
   );
