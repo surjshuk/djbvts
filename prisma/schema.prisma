@@ -55,6 +55,11 @@ model PdfGeneration {
   dateTo           String
   generatedBy      String
   generatedAt      DateTime @default(now())
+  summaryVehicleReports Json?
+  summaryTotalDistance  Float?
+  summaryTotalTrips     Int?
+  summaryVehicleCount   Int?
+  summaryGeneratedAt    DateTime?
   
   // Filter metadata
   filterVehicle    String?  // null or "all" means no filter

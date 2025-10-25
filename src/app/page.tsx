@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type ReportRow = {
+  id: string;
   area: string;
   vehicleNo: string;
   tankerType: string;
@@ -12,7 +13,7 @@ type ReportRow = {
   tripCount: number;
 };
 
-type ReportRowForm = Omit<ReportRow, "tripCount"> & { tripCount: string };
+type ReportRowForm = Omit<ReportRow, "tripCount" | "id"> & { tripCount: string };
 
 const EMPTY_FORM: ReportRowForm = {
   area: "",
@@ -40,16 +41,6 @@ const formFromRow = (row: ReportRow): ReportRowForm => ({
   tripCount: row.tripCount != null ? String(row.tripCount) : "",
 });
 
-const rowFromForm = (form: ReportRowForm): ReportRow => ({
-  area: form.area.trim(),
-  vehicleNo: form.vehicleNo.trim(),
-  tankerType: form.tankerType.trim(),
-  transporterName: form.transporterName.trim(),
-  reportDate: form.reportDate,
-  tripDistanceKm: form.tripDistanceKm.trim(),
-  tripCount: form.tripCount ? Number(form.tripCount) : 0,
-});
-
 export default function ReportsPage() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -70,11 +61,14 @@ export default function ReportsPage() {
   const [selectedMonths, setSelectedMonths] = useState<string[]>(() => [currentMonthKey]);
   
   const [generating, setGenerating] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [formState, setFormState] = useState<ReportRowForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -114,9 +108,12 @@ export default function ReportsPage() {
 
   async function loadData() {
     try {
+      setLoading(true);
+      setPageError(null);
       if (typeof window !== "undefined") {
         const token = localStorage.getItem("accessToken");
         if (!token) {
+          setLoading(false);
           return;
         }
       }
@@ -125,9 +122,14 @@ export default function ReportsPage() {
         const records = (await res.json()) as ReportRow[];
         setData(records);
         extractFilterOptions(records);
+      } else {
+        setPageError("Failed to load report data");
       }
     } catch (e) {
       console.error("Failed to load data:", e);
+      setPageError("Failed to load report data");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -196,55 +198,64 @@ export default function ReportsPage() {
     setFilteredData(filtered);
   }
 
-  const commitDataChanges = (updater: (rows: ReportRow[]) => ReportRow[]) => {
-    setData((prev) => {
-      const next = updater(prev);
-      if (next === prev) return prev;
-      extractFilterOptions(next);
-      return next;
-    });
-  };
-
   const startNewRow = () => {
-    setEditingIndex(null);
+    setEditingRowId(null);
     setFormState(EMPTY_FORM);
     setFormError(null);
     setIsFormOpen(true);
   };
 
   const startEditRow = (row: ReportRow) => {
-    const idx = data.indexOf(row);
-    if (idx === -1) return;
-    setEditingIndex(idx);
+    setEditingRowId(row.id);
     setFormState(formFromRow(row));
     setFormError(null);
     setIsFormOpen(true);
   };
 
-  const handleDeleteRow = (row: ReportRow) => {
-    const idx = data.indexOf(row);
-    if (idx === -1) return;
-    commitDataChanges((prev) => {
-      if (idx < 0 || idx >= prev.length) return prev;
-      const next = [...prev];
-      next.splice(idx, 1);
-      return next;
-    });
-    setFormError(null);
-    setEditingIndex((current) => {
-      if (current == null) return current;
-      if (current === idx) {
-        setIsFormOpen(false);
-        setFormState(EMPTY_FORM);
-        return null;
+  const handleDeleteRow = async (row: ReportRow) => {
+    if (!userEmail) {
+      alert("Please sign in before modifying data.");
+      router.replace("/login");
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Are you sure you want to delete this row?");
+      if (!confirmed) {
+        return;
       }
-      return current > idx ? current - 1 : current;
-    });
+    }
+
+    setSaving(true);
+    setFormError(null);
+    try {
+      const res = await fetch("/api/reports/data", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, deletedBy: userEmail }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.error || "Failed to delete row");
+      }
+
+      if (editingRowId === row.id) {
+        handleFormCancel();
+      }
+
+      await loadData();
+    } catch (error) {
+      console.error(error);
+      setFormError(error instanceof Error ? error.message : "Failed to delete row");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleFormCancel = () => {
     setIsFormOpen(false);
-    setEditingIndex(null);
+    setEditingRowId(null);
     setFormState(EMPTY_FORM);
     setFormError(null);
   };
@@ -259,7 +270,7 @@ export default function ReportsPage() {
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
 
@@ -276,21 +287,55 @@ export default function ReportsPage() {
       return;
     }
 
-    const normalized = rowFromForm(formState);
-
-    if (editingIndex != null) {
-      const targetIndex = editingIndex;
-      commitDataChanges((prev) => {
-        if (targetIndex < 0 || targetIndex >= prev.length) return prev;
-        const next = [...prev];
-        next[targetIndex] = normalized;
-        return next;
-      });
-    } else {
-      commitDataChanges((prev) => [...prev, normalized]);
+    if (!userEmail) {
+      alert("Please sign in before modifying data.");
+      router.replace("/login");
+      return;
     }
 
-    handleFormCancel();
+    const payload = {
+      area: formState.area.trim(),
+      vehicleNo: formState.vehicleNo.trim(),
+      tankerType: formState.tankerType.trim(),
+      transporterName: formState.transporterName.trim(),
+      reportDate: formState.reportDate,
+      tripDistanceKm: formState.tripDistanceKm.trim(),
+      tripCount: formState.tripCount ? Number(formState.tripCount) : 0,
+    };
+
+    setSaving(true);
+
+    try {
+      const headers = { "Content-Type": "application/json" };
+      let res: Response;
+
+      if (editingRowId) {
+        res = await fetch("/api/reports/data", {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ id: editingRowId, record: payload, updatedBy: userEmail }),
+        });
+      } else {
+        res = await fetch("/api/reports/data", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ record: payload, uploadedBy: userEmail }),
+        });
+      }
+
+      if (!res.ok) {
+        const response = await res.json().catch(() => ({}));
+        throw new Error(response?.error || "Failed to save row");
+      }
+
+      await loadData();
+      handleFormCancel();
+    } catch (error) {
+      console.error(error);
+      setFormError(error instanceof Error ? error.message : "Failed to save row");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleVehicleSelection = (value: string) => {
@@ -423,6 +468,14 @@ export default function ReportsPage() {
 
   return (
     <main className="p-6 max-w-7xl mx-auto">
+      {pageError && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {pageError}
+        </div>
+      )}
+      {loading && (
+        <div className="mb-4 text-sm text-gray-600">Loading report data…</div>
+      )}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">Daily Distance Reports</h1>
         <div className="flex items-center gap-3">
@@ -527,7 +580,7 @@ export default function ReportsPage() {
           </span>
           <button
             onClick={generatePDF}
-            disabled={generating || filteredData.length === 0}
+            disabled={generating || filteredData.length === 0 || loading}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {generating ? "Generating..." : "Generate PDF"}
@@ -543,7 +596,8 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={startNewRow}
-              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors"
+              disabled={saving || loading}
+              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               New Row
             </button>
@@ -566,7 +620,7 @@ export default function ReportsPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredData.map((row, idx) => (
-                <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <tr key={row.id} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                   <td className="px-4 py-3 text-sm">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm">{row.area}</td>
                   <td className="px-4 py-3 text-sm font-medium">{row.vehicleNo}</td>
@@ -580,14 +634,16 @@ export default function ReportsPage() {
                       <button
                         type="button"
                         onClick={() => startEditRow(row)}
-                        className="px-2 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors"
+                        disabled={saving}
+                        className="px-2 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteRow(row)}
-                        className="px-2 py-1 text-xs font-medium text-red-600 border border-red-600 rounded hover:bg-red-50 transition-colors"
+                        disabled={saving}
+                        className="px-2 py-1 text-xs font-medium text-red-600 border border-red-600 rounded hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Delete
                       </button>
@@ -603,7 +659,7 @@ export default function ReportsPage() {
             <form onSubmit={handleFormSubmit} className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-800">
-                  {editingIndex != null ? "Edit Row" : "Add New Row"}
+                  {editingRowId ? "Edit Row" : "Add New Row"}
                 </h3>
                 <button
                   type="button"
@@ -682,15 +738,17 @@ export default function ReportsPage() {
                 <button
                   type="button"
                   onClick={handleFormCancel}
-                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100"
+                  disabled={saving}
+                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                  disabled={saving}
+                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {editingIndex != null ? "Save Changes" : "Add Row"}
+                  {editingRowId ? "Save Changes" : "Add Row"}
                 </button>
               </div>
             </form>

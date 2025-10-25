@@ -6,6 +6,8 @@ import { prisma } from "../../../../lib/prisma";
 import { buildReportPdf } from "../../../../lib/report-pdf";
 import { ensureUserByEmail } from "../../../../lib/users";
 
+const KM_MATCHER = /[-+]?[0-9]*\.?[0-9]+/;
+
 type Filters = {
   vehicle?: string;
   vehicles?: string[];
@@ -46,6 +48,69 @@ function normalizeFilters(filters: Filters = {} as Filters): NormalizedFilters {
     vehicles: uniqueVehicles,
     area: areaValue,
     months: uniqueMonths,
+  };
+}
+
+function parseDistance(value: string | null | undefined): number {
+  if (!value) return 0;
+  const match = value.match(KM_MATCHER);
+  if (!match) return 0;
+  const num = Number.parseFloat(match[0]);
+  return Number.isNaN(num) ? 0 : num;
+}
+
+function buildSummary(rows: Array<{
+  vehicleNo: string;
+  area: string;
+  tankerType: string;
+  transporterName: string;
+  tripDistanceKm: string | null;
+  tripCount: number | null;
+}>) {
+  const vehicleMap = new Map<
+    string,
+    {
+      area: string;
+      tankerType: string;
+      transporterName: string;
+      totalDistance: number;
+      totalTrips: number;
+    }
+  >();
+
+  for (const row of rows) {
+    const key = row.vehicleNo;
+    const entry = vehicleMap.get(key) ?? {
+      area: row.area,
+      tankerType: row.tankerType,
+      transporterName: row.transporterName,
+      totalDistance: 0,
+      totalTrips: 0,
+    };
+
+    entry.totalDistance += parseDistance(row.tripDistanceKm ?? "0");
+    entry.totalTrips += row.tripCount ?? 0;
+
+    vehicleMap.set(key, entry);
+  }
+
+  const vehicleReports = Array.from(vehicleMap.entries()).map(([vehicleNumber, entry]) => ({
+    vehicleNumber,
+    area: entry.area,
+    tankerType: entry.tankerType,
+    transporterName: entry.transporterName,
+    totalDistance: Number(entry.totalDistance.toFixed(2)),
+    totalTrips: entry.totalTrips,
+    vehicleRecalculateCount: 0,
+  }));
+
+  const totalDistance = vehicleReports.reduce((sum, vehicle) => sum + vehicle.totalDistance, 0);
+  const totalTrips = vehicleReports.reduce((sum, vehicle) => sum + vehicle.totalTrips, 0);
+
+  return {
+    vehicleReports,
+    totalDistance: Number(totalDistance.toFixed(2)),
+    totalTrips,
   };
 }
 
@@ -103,6 +168,7 @@ export async function POST(req: NextRequest) {
     });
 
     const pdfBase64 = pdfBuffer.toString("base64");
+    const summary = buildSummary(rows);
 
     await prisma.pdfGeneration.create({
       data: {
@@ -121,6 +187,11 @@ export async function POST(req: NextRequest) {
           : null,
         pdfBase64,
         recordCount: rows.length,
+        summaryVehicleReports: summary.vehicleReports,
+        summaryTotalDistance: summary.totalDistance,
+        summaryTotalTrips: summary.totalTrips,
+        summaryVehicleCount: summary.vehicleReports.length,
+        summaryGeneratedAt: generatedAt,
       },
     });
 

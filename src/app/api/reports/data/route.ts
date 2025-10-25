@@ -241,9 +241,57 @@ export async function POST(req: NextRequest) {
     const contentType = req.headers.get("content-type") ?? "";
 
     if (contentType.includes("application/json")) {
-      const { records: rawRecords, uploadedBy } = await req.json();
+      const payload = await req.json();
+      const { records: rawRecords, record: singleRecord, uploadedBy } = payload;
       if (!uploadedBy) {
         return NextResponse.json({ error: "uploadedBy is required" }, { status: 400 });
+      }
+
+      const uploaderEmail = await ensureUserByEmail(uploadedBy);
+
+      if (singleRecord) {
+        const normalizedRecord: ParsedRow = {
+          vehicleNo: String(singleRecord.vehicleNo ?? "").trim(),
+          area: String(singleRecord.area ?? "").trim(),
+          tankerType: String(singleRecord.tankerType ?? "").trim(),
+          transporterName: String(singleRecord.transporterName ?? "").trim(),
+          reportDate: normaliseDate(singleRecord.reportDate) ?? "",
+          tripDistanceKm: toDistanceString(singleRecord.tripDistanceKm),
+          tripCount: toTripCount(singleRecord.tripCount),
+        };
+
+        if (!normalizedRecord.vehicleNo) {
+          return NextResponse.json({ error: "vehicleNo is required" }, { status: 400 });
+        }
+
+        if (!normalizedRecord.reportDate) {
+          return NextResponse.json({ error: "Valid reportDate is required" }, { status: 400 });
+        }
+
+        const snapshotCode = `manual-${randomBytes(8).toString("hex")}`;
+        const now = new Date();
+
+        const [, created] = await prisma.$transaction([
+          prisma.uploadSnapshot.create({
+            data: {
+              snapshotCode,
+              uploadedBy: uploaderEmail,
+              recordCount: 1,
+              fileName: "manual-entry",
+              uploadedAt: now,
+            },
+          }),
+          prisma.report.create({
+            data: {
+              ...normalizedRecord,
+              snapshotCode,
+              uploadedBy: uploaderEmail,
+              uploadedAt: now,
+            },
+          }),
+        ]);
+
+        return NextResponse.json({ success: true, record: created });
       }
 
       if (!Array.isArray(rawRecords) || rawRecords.length === 0) {
@@ -265,7 +313,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "No valid rows to save" }, { status: 400 });
       }
 
-      const uploaderEmail = await ensureUserByEmail(uploadedBy);
       const savedRows = await persistRows(rows, uploaderEmail, snapshotCode, null);
       return NextResponse.json({
         success: true,
@@ -307,6 +354,77 @@ export async function POST(req: NextRequest) {
     console.error("Failed to save data", error);
     const status = typeof error?.statusCode === "number" ? error.statusCode : 500;
     const message = status === 400 && error?.message ? error.message : "Failed to save data";
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { id, record, updatedBy } = await req.json();
+
+    if (!id || !record) {
+      return NextResponse.json({ error: "id and record are required" }, { status: 400 });
+    }
+
+    const existing = await prisma.report.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    }
+
+    const updaterEmail = updatedBy ? await ensureUserByEmail(updatedBy) : existing.uploadedBy;
+    const nextReportDate = normaliseDate(record.reportDate ?? existing.reportDate);
+    if (!nextReportDate) {
+      return NextResponse.json({ error: "Valid reportDate is required" }, { status: 400 });
+    }
+
+    const updateData = {
+      vehicleNo: String(record.vehicleNo ?? existing.vehicleNo).trim(),
+      area: String(record.area ?? existing.area).trim(),
+      tankerType: String(record.tankerType ?? existing.tankerType).trim(),
+      transporterName: String(record.transporterName ?? existing.transporterName).trim(),
+      reportDate: nextReportDate,
+      tripDistanceKm: toDistanceString(record.tripDistanceKm ?? existing.tripDistanceKm),
+      tripCount: toTripCount(record.tripCount ?? existing.tripCount),
+      uploadedBy: updaterEmail,
+      uploadedAt: new Date(),
+    };
+
+    const updatedRecord = await prisma.report.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({ success: true, record: updatedRecord });
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      return NextResponse.json(
+        { error: "A report already exists for the selected vehicle and date" },
+        { status: 409 }
+      );
+    }
+    console.error("Failed to update report", error);
+    const status = typeof error?.statusCode === "number" ? error.statusCode : 500;
+    const message = status === 400 && error?.message ? error.message : "Failed to update report";
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { id } = await req.json();
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    const deleted = await prisma.report.delete({ where: { id } });
+    return NextResponse.json({ success: true, record: deleted });
+  } catch (error: any) {
+    if (error?.code === "P2025") {
+      return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    }
+    console.error("Failed to delete report", error);
+    const status = typeof error?.statusCode === "number" ? error.statusCode : 500;
+    const message = status === 400 && error?.message ? error.message : "Failed to delete report";
     return NextResponse.json({ error: message }, { status });
   }
 }
