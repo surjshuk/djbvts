@@ -8,8 +8,9 @@ const mmToPt = (mm: number) => (mm * 72) / 25.4;
 // Base custom page size: 297 × 241 mm
 const PAGE_WIDTH_PT = mmToPt(297);
 const BASE_PAGE_HEIGHT_PT = mmToPt(241);
-const BASE_ROW_CAPACITY = 22;
+const ROWS_PER_PAGE = 21;
 const ROW_HEIGHT_PT = 18;
+const FOOTER_GAP_PT = 6; // Change this gap to adjust spacing between table rows and footer
 
 type Row = {
   area: string;
@@ -56,12 +57,8 @@ export async function buildReportPdf({
 }): Promise<Buffer> {
   const { default: PDFDocument } = await import("pdfkit");
 
-  const extraRows = Math.max(0, rows.length - BASE_ROW_CAPACITY);
-  const dynamicPageHeightPt = BASE_PAGE_HEIGHT_PT + extraRows * ROW_HEIGHT_PT;
-
-  // set custom size (portrait). For landscape, swap width/height.
   const doc = new PDFDocument({
-    size: [PAGE_WIDTH_PT, dynamicPageHeightPt],
+    size: [PAGE_WIDTH_PT, BASE_PAGE_HEIGHT_PT],
     margin: 24,
   });
 
@@ -69,68 +66,7 @@ export async function buildReportPdf({
   doc.on("data", (c) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 
-  const left = doc.page.margins.left;
-  const right = PAGE_WIDTH_PT - doc.page.margins.right;
-  const centerX = PAGE_WIDTH_PT / 2;
-
-  // Generated at timestamp
-  const genTime = generatedAt.toTimeString().slice(0, 8);
-  doc.fontSize(9).fillColor("#000")
-    .text(
-      `System Generated Report, Generated at: ${fmtDate(generatedAt)} ${genTime}`,
-      { align: "center" }
-    )
-    .moveDown(0.1);
-
-  // Capture headerY after the timestamp
-  const headerY = doc.y;
-
-  // Calculate heights for vertical centering
-  const logoWidth = 100;
-  const logoHeight = 30; // Adjust based on your logo's aspect ratio
-  const qrSize = 80;
-  const qrWithTextHeight = qrSize + 2 + 10; // QR + spacing + text height
-  const titleHeight = 20; // Approximate height for title text
-  
-  // Find the tallest element
-  const maxHeight = Math.max(titleHeight, logoHeight, qrWithTextHeight);
-  
-  // Calculate vertical offsets to center each element
-  const titleOffset = (maxHeight - titleHeight) / 2;
-  const logoOffset = (maxHeight - logoHeight) / 2;
-  const qrOffset = (maxHeight - qrWithTextHeight) / 2;
-  
-  // Left: Title and Date range
-  doc.fontSize(9).font('Helvetica').fillColor("#000")
-    .text(title, left, headerY + titleOffset + 4, { continued: true })
-    .fontSize(9).font('Helvetica')
-    .text(` (From: ${fmtDate(dateFrom)} To: ${fmtDate(dateTo)} )`, { width: 300 });
-  
-  // Center: Logo from public folder
-  const logoBuffer = await loadLogoBuffer();
-  doc.image(logoBuffer, centerX - logoWidth / 2, headerY + logoOffset, { width: logoWidth });
-  
-  // Right: QR code with "Scan for report details" below
-  const qrX = right - qrSize;
-  const qrDataUrl = await QRCode.toDataURL(verificationUrl, { width: 200 });
-  const qrBuf = Buffer.from(qrDataUrl.split(",")[1], "base64");
-  doc.image(qrBuf, qrX, headerY + qrOffset, { width: qrSize });
-  
-  // "Scan for report details" below QR
-  doc.fontSize(7).fillColor("#666")
-    .text("Scan for report details", qrX - 10, headerY + qrOffset + qrSize - 2, { width: qrSize + 20, align: "center" });
-  
-  // Move down past the header section
-  doc.y = headerY + maxHeight + 10;
-  doc.moveDown(0.1);
-  
-  
-
-
-  // Table layout
-  const tableWidth = right - left;
-
-  const cols = [
+  const columns = [
     { label: "S.No", width: 40 },
     { label: "Area", width: 80 },
     { label: "Vehicle No.", width: 100 },
@@ -141,111 +77,186 @@ export async function buildReportPdf({
     { label: "Trip Count", width: 70 },
   ];
 
-  // Draw header row with light gray background
-  let y = doc.y;
-  const headerHeight = 20;
-  
-  doc.save()
-    .rect(left, y, tableWidth, headerHeight)
-    .fill("#2880ba");
+  const totalKm = rows.reduce((sum, r) => {
+    const numericDistance = parseFloat(r.tripDistanceKm);
+    return sum + (Number.isFinite(numericDistance) ? numericDistance : 0);
+  }, 0).toFixed(2);
 
-  // Column titles in white, bold
-  doc.fillColor("#fff").fontSize(7).font('Helvetica-Bold');
-  let x = left + 3;
-  for (const c of cols) {
-    doc.text(c.label, x, y + 5, { width: c.width - 6, align: "left" });
-    x += c.width;
-  }
-  doc.restore();
+  const totalPages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
+  const firstRow = rows[0];
+  const logoBuffer = await loadLogoBuffer();
+  const qrDataUrl = await QRCode.toDataURL(verificationUrl, { width: 200 });
+  const qrBuf = Buffer.from(qrDataUrl.split(",")[1], "base64");
+  const genTime = generatedAt.toTimeString().slice(0, 8);
+  const genTimeFooter = genTime;
 
-  // Sub-header row (lighter color) - shows totals
-  y += headerHeight;
-  const subHeaderHeight = 20;
-  doc.save()
-    .rect(left, y, tableWidth, subHeaderHeight)
-    .fill("#babae8"); // Lighter blue than header
+  const drawFirstPageHeader = () => {
+    const pageWidth = doc.page.width;
+    const left = doc.page.margins.left;
+    const right = pageWidth - doc.page.margins.right;
 
-  doc.fillColor("#858484").fontSize(8).font('Helvetica');
-  
-  // Calculate total km from all rows
-  const totalKm = rows.reduce((sum, r) => sum + parseFloat(r.tripDistanceKm), 0).toFixed(2);
-  
-  x = left + 3;
-  const subHeaderCells = [
-    "", // S.No
-    rows[0]?.area || "", // Area (from first row)
-    rows[0]?.vehicleNo || "", // Vehicle No
-    rows[0]?.tankerType || "", // Tanker Type
-    rows[0]?.transporterName || "", // Transporter Name
-    `${fmtDate(dateFrom)} - ${fmtDate(dateTo)}`, // Date range
-    `${totalKm} km`, // Total distance
-    String(rows.length), // Total trip count
-  ];
-  
-  subHeaderCells.forEach((val, idx) => {
-    const w = cols[idx].width;
-    doc.text(val, x, y + 5, { width: w - 6, align: "left" });
-    x += w;
-  });
-  doc.restore();
+    const headerY = doc.y;
+    const logoWidth = 140;
+    const logoHeight = 35;
+    const stretchedLogoHeight = logoHeight * 1.5;
+    const qrSize = 120;
+    const qrWithTextHeight = qrSize + 2 + 10;
+    const titleLine = `${title} (From: ${fmtDate(dateFrom)} To: ${fmtDate(dateTo)} )`;
 
-  // Body rows with alternating colors
-  y += subHeaderHeight;
-  doc.fontSize(7).font('Helvetica');
-  
-  rows.forEach((r, i) => {
-    const rowHeight = ROW_HEIGHT_PT;
-    
-    // Alternate row background: white and light gray
-    const bgColor = i % 2 === 0 ? "#ffffff" : "#f5f5f5";
-    doc.save()
-      .rect(left, y, tableWidth, rowHeight)
-      .fill(bgColor);
+    doc.fontSize(9).font("Helvetica-Bold");
+    const titleBlockHeight = doc.heightOfString(titleLine, { width: 300 });
+    const leftBlockHeight = stretchedLogoHeight + 6 + titleBlockHeight;
+    const headerHeight = Math.max(leftBlockHeight, qrWithTextHeight);
+
+    const logoTop = headerY + headerHeight - leftBlockHeight;
+    const titleY = logoTop + stretchedLogoHeight + 6;
+    doc.image(logoBuffer, left, logoTop, { width: logoWidth, height: stretchedLogoHeight });
+
+    doc.fillColor("#000").text(titleLine, left, titleY, { width: 300 });
+
+    const qrX = right - qrSize;
+    const qrTop = headerY + headerHeight - qrWithTextHeight;
+    doc.image(qrBuf, qrX, qrTop, { width: qrSize });
+
+    doc.fontSize(7)
+      .font("Helvetica-Bold")
+      .fillColor("#000")
+      .text("Scan for report details", qrX - 15, qrTop + qrSize + 2, {
+        width: qrSize + 20,
+        align: "center",
+      });
+
+    const headerBottom = headerY + headerHeight;
+    doc.y = headerBottom + 10;
+    doc.moveDown(0.1);
+  };
+
+  const drawTableHeader = (left: number, tableWidth: number, includeSubHeader: boolean) => {
+    let currentY = doc.y;
+    const headerHeight = 20;
+    doc.save().rect(left, currentY, tableWidth, headerHeight).fill("#2880ba");
     doc.restore();
-    
-    // Text color
-    doc.fillColor("#858484");
-    
-    x = left + 3;
-    const cells = [
-      String(i + 1),
-      r.area,
-      r.vehicleNo,
-      r.tankerType,
-      r.transporterName,
-      r.reportDate,
-      r.tripDistanceKm,
-      String(r.tripCount),
-    ];
-    
-    cells.forEach((val, idx) => {
-      const w = cols[idx].width;
-      doc.text(val, x, y + 5, { width: w - 6, align: "left", lineBreak: false });
-      x += w;
-    });
-    
-    y += rowHeight;
-  });
 
-  // QR footer
-  const footerY = dynamicPageHeightPt - doc.page.margins.bottom - 60;
-    
-  const genTimeFooter = generatedAt.toTimeString().slice(0, 8);
-  doc.fontSize(7).font('Helvetica').fillColor("#000")
-    .text(
-      `Generated by :- ${generatedByEmail} , Report Generated At :- ${fmtDate(generatedAt)} ${genTimeFooter}`,
-      left,
-      footerY + 15,
-      { width: tableWidth - 60 }
+    doc.fillColor("#fff").fontSize(7).font("Helvetica-Bold");
+    let x = left + 3;
+    for (const c of columns) {
+      doc.text(c.label, x, currentY + 5, { width: c.width - 6, align: "left" });
+      x += c.width;
+    }
+    currentY += headerHeight;
+    doc.y = currentY;
+
+    if (includeSubHeader) {
+      const subHeaderHeight = 20;
+      doc.save().rect(left, currentY, tableWidth, subHeaderHeight).fill("#babae8");
+      doc.restore();
+
+      doc.fillColor("#858484").fontSize(8).font("Helvetica-Bold");
+      const subHeaderCells = [
+        "",
+        firstRow?.area || "",
+        firstRow?.vehicleNo || "",
+        firstRow?.tankerType || "",
+        firstRow?.transporterName || "",
+        `${fmtDate(dateFrom)} - ${fmtDate(dateTo)}`,
+        `${totalKm} km`,
+        String(rows.length),
+      ];
+
+      x = left + 3;
+      subHeaderCells.forEach((val, idx) => {
+        const w = columns[idx].width;
+        doc.text(val, x, currentY + 5, { width: w - 6, align: "left" });
+        x += w;
+      });
+
+      currentY += subHeaderHeight;
+      doc.y = currentY;
+    }
+
+    doc.fontSize(7).font("Helvetica");
+  };
+
+  const drawRows = (left: number, tableWidth: number, pageRows: Row[], startIndex: number) => {
+    let currentY = doc.y;
+    pageRows.forEach((row, offset) => {
+      const globalIndex = startIndex + offset;
+      const bgColor = globalIndex % 2 === 0 ? "#ffffff" : "#f5f5f5";
+      doc.save().rect(left, currentY, tableWidth, ROW_HEIGHT_PT).fill(bgColor);
+      doc.restore();
+
+      doc.fillColor("#858484");
+      let x = left + 3;
+      const cells = [
+        String(globalIndex + 1),
+        row.area,
+        row.vehicleNo,
+        row.tankerType,
+        row.transporterName,
+        row.reportDate,
+        row.tripDistanceKm,
+        String(row.tripCount),
+      ];
+
+      cells.forEach((val, idx) => {
+        const w = columns[idx].width;
+        doc.text(val, x, currentY + 5, { width: w - 6, align: "left", lineBreak: false });
+        x += w;
+      });
+
+      currentY += ROW_HEIGHT_PT;
+    });
+    doc.y = currentY;
+  };
+
+  const drawFooter = (left: number, right: number, tableWidth: number, pageNumber: number) => {
+    const footerY = Math.min(
+      doc.y + FOOTER_GAP_PT,
+      doc.page.height - doc.page.margins.bottom - 40
     );
-  
-  // Page number
-  doc.text(
-    `Page 1 of 1`,
-    right - 60,
-    footerY + 15,
-    { width: 60, align: "right" }
-  );
+
+    doc.fontSize(7)
+      .font("Helvetica-Bold")
+      .fillColor("#000")
+      .text(
+        `Generated by :- ${generatedByEmail} , Report Generated At :- ${fmtDate(generatedAt)} ${genTimeFooter}`,
+        left,
+        footerY,
+        { width: tableWidth - 60 }
+      );
+
+    doc.text(`Page ${pageNumber} of ${totalPages}`, right - 60, footerY, {
+      width: 60,
+      align: "right",
+    });
+  };
+
+  for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+    const isFirstPage = pageIndex === 0;
+
+    if (pageIndex > 0) {
+      doc.addPage({ size: [PAGE_WIDTH_PT, BASE_PAGE_HEIGHT_PT], margin: 24 });
+    }
+
+    const pageWidth = doc.page.width;
+    const left = doc.page.margins.left;
+    const right = pageWidth - doc.page.margins.right;
+    const tableWidth = right - left;
+
+    if (isFirstPage) {
+      drawFirstPageHeader();
+    } else {
+      doc.y = doc.page.margins.top;
+    }
+
+    drawTableHeader(left, tableWidth, isFirstPage && rows.length > 0);
+
+    const start = pageIndex * ROWS_PER_PAGE;
+    const pageRows = rows.slice(start, start + ROWS_PER_PAGE);
+    drawRows(left, tableWidth, pageRows, start);
+
+    drawFooter(left, right, tableWidth, pageIndex + 1);
+  }
 
   doc.end();
   return done;

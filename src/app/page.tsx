@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function ReportsPage() {
@@ -8,14 +8,18 @@ export default function ReportsPage() {
   const [uploading, setUploading] = useState(false);
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [areas, setAreas] = useState([]);
-  const [months, setMonths] = useState([]);
-  
-  // Filters
-  const [selectedVehicle, setSelectedVehicle] = useState("all");
+  const [vehicles, setVehicles] = useState<string[]>([]);
+  const [areas, setAreas] = useState<string[]>([]);
+  const [months, setMonths] = useState<string[]>([]);
+
+  const currentMonthKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
+  const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
   const [selectedArea, setSelectedArea] = useState("all");
-  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [selectedMonths, setSelectedMonths] = useState<string[]>(() => [currentMonthKey]);
   
   const [generating, setGenerating] = useState(false);
   const [userEmail, setUserEmail] = useState("");
@@ -54,7 +58,7 @@ export default function ReportsPage() {
   // Apply filters whenever data or filters change
   useEffect(() => {
     applyFilters();
-  }, [data, selectedVehicle, selectedArea, selectedMonth]);
+  }, [data, selectedVehicles, selectedArea, selectedMonths]);
 
   async function loadData() {
     try {
@@ -75,50 +79,82 @@ export default function ReportsPage() {
     }
   }
 
-  function extractFilterOptions(records) {
-    const vehicleSet = new Set();
-    const areaSet = new Set();
-    const monthSet = new Set();
+  function extractFilterOptions(records: any[]) {
+    const vehicleSet = new Set<string>();
+    const areaSet = new Set<string>();
+    const monthSet = new Set<string>();
 
-    records.forEach(r => {
+    records.forEach((r) => {
       if (r.vehicleNo) vehicleSet.add(r.vehicleNo);
       if (r.area) areaSet.add(r.area);
       if (r.reportDate) {
         const date = new Date(r.reportDate);
         if (!Number.isNaN(date.valueOf())) {
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
           monthSet.add(monthKey);
         }
       }
     });
 
-    setVehicles(Array.from(vehicleSet).sort());
-    setAreas(Array.from(areaSet).sort());
-    setMonths(Array.from(monthSet).sort().reverse());
+    const vehicleList = Array.from(vehicleSet).sort();
+    const areaList = Array.from(areaSet).sort();
+    const monthList = Array.from(monthSet).sort().reverse();
+
+    setVehicles(vehicleList);
+    setAreas(areaList);
+    setMonths(monthList);
+
+    setSelectedVehicles((prev) => prev.filter((v) => vehicleSet.has(v)));
+    setSelectedMonths((prev) => {
+      const valid = prev.filter((m) => monthSet.has(m));
+      if (valid.length > 0) {
+        return valid;
+      }
+      if (prev.length > 0) {
+        return prev;
+      }
+      if (monthSet.has(currentMonthKey)) {
+        return [currentMonthKey];
+      }
+      return [];
+    });
   }
 
   function applyFilters() {
     let filtered = [...data];
 
-    if (selectedVehicle !== "all") {
-      filtered = filtered.filter(r => r.vehicleNo === selectedVehicle);
+    if (selectedVehicles.length > 0) {
+      filtered = filtered.filter((r) => selectedVehicles.includes(r.vehicleNo));
     }
 
     if (selectedArea !== "all") {
-      filtered = filtered.filter(r => r.area === selectedArea);
+      filtered = filtered.filter((r) => r.area === selectedArea);
     }
 
-    if (selectedMonth !== "all") {
-      filtered = filtered.filter(r => {
+    if (selectedMonths.length > 0) {
+      filtered = filtered.filter((r) => {
         if (!r.reportDate) return false;
         const date = new Date(r.reportDate);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        return monthKey === selectedMonth;
+        if (Number.isNaN(date.valueOf())) return false;
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        return selectedMonths.includes(monthKey);
       });
     }
 
     setFilteredData(filtered);
   }
+
+  const toggleVehicleSelection = (value: string) => {
+    setSelectedVehicles((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    );
+  };
+
+  const toggleMonthSelection = (value: string) => {
+    setSelectedMonths((prev) =>
+      prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]
+    );
+  };
 
   async function handleFileUpload(e) {
     const selectedFile = e.target.files?.[0];
@@ -193,9 +229,9 @@ export default function ReportsPage() {
           dateTo: dateTo.toISOString().split('T')[0],
           generatedByEmail: userEmail,
           filters: {
-            vehicle: selectedVehicle,
+            vehicles: selectedVehicles,
             area: selectedArea,
-            month: selectedMonth
+            months: selectedMonths,
           }
         })
       });
@@ -264,17 +300,27 @@ export default function ReportsPage() {
         <h2 className="text-lg font-semibold mb-3">Filters</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Number</label>
-            <select
-              value={selectedVehicle}
-              onChange={(e) => setSelectedVehicle(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Vehicles</option>
-              {vehicles.map(v => (
-                <option key={v} value={v}>{v}</option>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Vehicle Numbers</span>
+            <div className="border border-gray-300 rounded-md bg-gray-50 divide-y divide-gray-200 max-h-48 overflow-y-auto">
+              <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={selectedVehicles.length === 0}
+                  onChange={() => setSelectedVehicles([])}
+                />
+                <span>All Vehicles</span>
+              </label>
+              {vehicles.map((v) => (
+                <label key={v} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedVehicles.includes(v)}
+                    onChange={() => toggleVehicleSelection(v)}
+                  />
+                  <span>{v}</span>
+                </label>
               ))}
-            </select>
+            </div>
           </div>
 
           <div>
@@ -292,17 +338,30 @@ export default function ReportsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Months</option>
-              {months.map(m => (
-                <option key={m} value={m}>{m}</option>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Months</span>
+            <div className="border border-gray-300 rounded-md bg-gray-50 divide-y divide-gray-200 max-h-48 overflow-y-auto">
+              <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={selectedMonths.length === 0}
+                  onChange={() => setSelectedMonths([])}
+                />
+                <span>All Months</span>
+              </label>
+              {months.map((m) => (
+                <label key={m} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedMonths.includes(m)}
+                    onChange={() => toggleMonthSelection(m)}
+                  />
+                  <span>
+                    {m}
+                    {m === currentMonthKey ? " (current)" : ""}
+                  </span>
+                </label>
               ))}
-            </select>
+            </div>
           </div>
         </div>
 

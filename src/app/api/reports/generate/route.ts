@@ -8,13 +8,51 @@ import { ensureUserByEmail } from "../../../../lib/users";
 
 type Filters = {
   vehicle?: string;
-  area?: string;
+  vehicles?: string[];
+  area?: string | string[];
   month?: string;
+  months?: string[];
 };
+
+type NormalizedFilters = {
+  vehicles: string[];
+  area: string | null;
+  months: string[];
+};
+
+function normalizeFilters(filters: Filters = {} as Filters): NormalizedFilters {
+  const vehicleArray = Array.isArray(filters.vehicles)
+    ? filters.vehicles
+    : filters.vehicle && filters.vehicle !== "all"
+      ? [filters.vehicle]
+      : [];
+
+  const monthArray = Array.isArray(filters.months)
+    ? filters.months
+    : filters.month && filters.month !== "all"
+      ? [filters.month]
+      : [];
+
+  const areaValue = Array.isArray(filters.area)
+    ? filters.area[0] ?? null
+    : filters.area && filters.area !== "all"
+      ? filters.area
+      : null;
+
+  const uniqueVehicles = Array.from(new Set(vehicleArray.filter(Boolean)));
+  const uniqueMonths = Array.from(new Set(monthArray.filter(Boolean)));
+
+  return {
+    vehicles: uniqueVehicles,
+    area: areaValue,
+    months: uniqueMonths,
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { dateFrom, dateTo, generatedByEmail, filters = {} as Filters } = await req.json();
+    const normalizedFilters = normalizeFilters(filters);
 
     if (!dateFrom || !dateTo) {
       return NextResponse.json({ error: "dateFrom and dateTo are required" }, { status: 400 });
@@ -26,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const generatorEmail = await ensureUserByEmail(generatedByEmail);
 
-    const where = buildWhereClause(dateFrom, dateTo, filters);
+    const where = buildWhereClause(dateFrom, dateTo, normalizedFilters);
 
     const rows = await prisma.report.findMany({
       where,
@@ -74,9 +112,13 @@ export async function POST(req: NextRequest) {
         dateTo,
         generatedBy: generatorEmail,
         generatedAt,
-        filterVehicle: filters.vehicle && filters.vehicle !== "all" ? filters.vehicle : null,
-        filterArea: filters.area && filters.area !== "all" ? filters.area : null,
-        filterMonth: filters.month && filters.month !== "all" ? filters.month : null,
+        filterVehicle: normalizedFilters.vehicles.length
+          ? normalizedFilters.vehicles.join(", ")
+          : null,
+        filterArea: normalizedFilters.area,
+        filterMonth: normalizedFilters.months.length
+          ? normalizedFilters.months.join(", ")
+          : null,
         pdfBase64,
         recordCount: rows.length,
       },
@@ -97,22 +139,26 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function buildWhereClause(dateFrom: string, dateTo: string, filters: Filters): Prisma.ReportWhereInput {
+function buildWhereClause(dateFrom: string, dateTo: string, filters: NormalizedFilters): Prisma.ReportWhereInput {
   const clauses: Prisma.ReportWhereInput[] = [
     { reportDate: { gte: dateFrom } },
     { reportDate: { lte: dateTo } },
   ];
 
-  if (filters.vehicle && filters.vehicle !== "all") {
-    clauses.push({ vehicleNo: filters.vehicle });
+  if (filters.vehicles.length > 0) {
+    clauses.push({ vehicleNo: { in: filters.vehicles } });
   }
 
-  if (filters.area && filters.area !== "all") {
+  if (filters.area) {
     clauses.push({ area: filters.area });
   }
 
-  if (filters.month && filters.month !== "all") {
-    clauses.push({ reportDate: { startsWith: `${filters.month}-` } });
+  if (filters.months.length > 0) {
+    clauses.push({
+      OR: filters.months.map((month) => ({
+        reportDate: { startsWith: `${month}-` },
+      })),
+    });
   }
 
   return { AND: clauses };

@@ -31,16 +31,30 @@ function buildWhereClause({
     { reportDate: { lte: dateTo } },
   ];
 
-  if (filterVehicle && filterVehicle !== "all") {
-    clauses.push({ vehicleNo: filterVehicle });
+  const vehicleFilters =
+    filterVehicle && filterVehicle !== "all"
+      ? filterVehicle.split(",").map((token) => token.trim()).filter(Boolean)
+      : [];
+
+  if (vehicleFilters.length > 0) {
+    clauses.push({ vehicleNo: { in: vehicleFilters } });
   }
 
   if (filterArea && filterArea !== "all") {
     clauses.push({ area: filterArea });
   }
 
-  if (filterMonth && filterMonth !== "all") {
-    clauses.push({ reportDate: { startsWith: `${filterMonth}-` } });
+  const monthFilters =
+    filterMonth && filterMonth !== "all"
+      ? filterMonth.split(",").map((token) => token.trim()).filter(Boolean)
+      : [];
+
+  if (monthFilters.length > 0) {
+    clauses.push({
+      OR: monthFilters.map((month) => ({
+        reportDate: { startsWith: `${month}-` },
+      })),
+    });
   }
 
   return { AND: clauses };
