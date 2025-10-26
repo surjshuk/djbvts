@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
     const pdfBase64 = pdfBuffer.toString("base64");
     const summary = buildSummary(rows);
 
-    const createPayload: Prisma.PdfGenerationUncheckedCreateInput = {
+    const createPayload = {
       verificationCode,
       verificationUrl,
       dateFrom,
@@ -193,7 +193,10 @@ export async function POST(req: NextRequest) {
       summaryGeneratedAt: generatedAt,
     };
 
-    await prisma.pdfGeneration.create({ data: createPayload });
+    // Assert to Prisma type so builds with stale generated clients don't flag the summary fields.
+    await prisma.pdfGeneration.create({
+      data: createPayload as Prisma.PdfGenerationUncheckedCreateInput,
+    });
 
     return NextResponse.json({
       success: true,
