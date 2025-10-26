@@ -170,30 +170,30 @@ export async function POST(req: NextRequest) {
     const pdfBase64 = pdfBuffer.toString("base64");
     const summary = buildSummary(rows);
 
-    await prisma.pdfGeneration.create({
-      data: {
-        verificationCode,
-        verificationUrl,
-        dateFrom,
-        dateTo,
-        generatedBy: generatorEmail,
-        generatedAt,
-        filterVehicle: normalizedFilters.vehicles.length
-          ? normalizedFilters.vehicles.join(", ")
-          : null,
-        filterArea: normalizedFilters.area,
-        filterMonth: normalizedFilters.months.length
-          ? normalizedFilters.months.join(", ")
-          : null,
-        pdfBase64,
-        recordCount: rows.length,
-        summaryVehicleReports: summary.vehicleReports,
-        summaryTotalDistance: summary.totalDistance,
-        summaryTotalTrips: summary.totalTrips,
-        summaryVehicleCount: summary.vehicleReports.length,
-        summaryGeneratedAt: generatedAt,
-      },
-    });
+    const createPayload: Prisma.PdfGenerationUncheckedCreateInput = {
+      verificationCode,
+      verificationUrl,
+      dateFrom,
+      dateTo,
+      generatedBy: generatorEmail,
+      generatedAt,
+      filterVehicle: normalizedFilters.vehicles.length
+        ? normalizedFilters.vehicles.join(", ")
+        : null,
+      filterArea: normalizedFilters.area,
+      filterMonth: normalizedFilters.months.length
+        ? normalizedFilters.months.join(", ")
+        : null,
+      pdfBase64,
+      recordCount: rows.length,
+      summaryVehicleReports: summary.vehicleReports,
+      summaryTotalDistance: summary.totalDistance,
+      summaryTotalTrips: summary.totalTrips,
+      summaryVehicleCount: summary.vehicleReports.length,
+      summaryGeneratedAt: generatedAt,
+    };
+
+    await prisma.pdfGeneration.create({ data: createPayload });
 
     return NextResponse.json({
       success: true,
