@@ -57,7 +57,9 @@ function normaliseDate(input: unknown): string | null {
     if (year.length === 2) {
       year = Number(year) >= 70 ? `19${year}` : `20${year}`;
     }
-    return `${year}-${month}-${day}`;
+
+    console.log(`${year}-${month}-${day}`)
+    return `${day}-${month}-${year}`;
   }
 
   // Attempt native parsing as fallback
@@ -101,7 +103,7 @@ async function parseWorkbook(file: File): Promise<ParsedRow[]> {
     defval: "",
     blankrows: false,
   });
-
+  
   const normalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const findColumn = (headers: string[], candidates: string[]) => {
     for (const candidate of candidates) {
@@ -335,6 +337,7 @@ export async function POST(req: NextRequest) {
     }
 
     const parsedRows = await parseWorkbook(file);
+
     if (parsedRows.length === 0) {
       return NextResponse.json({ error: "No data rows detected in worksheet" }, { status: 400 });
     }
