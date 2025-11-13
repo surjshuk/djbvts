@@ -25,18 +25,36 @@ const EMPTY_FORM: ReportRowForm = {
   tripCount: "",
 };
 
+/**
+ * Convert DD-MM-YYYY date string to YYYY-MM-DD format for HTML date input
+ * @param dateStr - Date string in DD-MM-YYYY format
+ * @returns Date string in YYYY-MM-DD format, or original string if invalid
+ */
+const convertToInputFormat = (dateStr: string): string => {
+  if (!dateStr) return "";
+
+  // Try to parse DD-MM-YYYY format
+  const ddmmyyyy = dateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (ddmmyyyy) {
+    const [, day, month, year] = ddmmyyyy;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  // If already in YYYY-MM-DD format, return as-is
+  const yyyymmdd = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (yyyymmdd) {
+    return dateStr;
+  }
+
+  return dateStr;
+};
+
 const formFromRow = (row: ReportRow): ReportRowForm => ({
   area: row.area ?? "",
   vehicleNo: row.vehicleNo ?? "",
   tankerType: row.tankerType ?? "",
   transporterName: row.transporterName ?? "",
-  reportDate: (() => {
-    const date = new Date(row.reportDate);
-    if (!Number.isNaN(date.valueOf())) {
-      return date.toISOString().split("T")[0];
-    }
-    return row.reportDate ?? "";
-  })(),
+  reportDate: convertToInputFormat(row.reportDate ?? ""),
   tripDistanceKm: row.tripDistanceKm ?? "",
   tripCount: row.tripCount != null ? String(row.tripCount) : "",
 });
@@ -397,12 +415,31 @@ export default function ReportsPage() {
     return null;
   };
 
+  /**
+   * Convert date from HTML input format (YYYY-MM-DD) to storage format (DD-MM-YYYY)
+   * @param dateStr - Date string in YYYY-MM-DD format from date input
+   * @returns Date string in DD-MM-YYYY format
+   */
+  const convertFromInputFormat = (dateStr: string): string => {
+    if (!dateStr) return "";
+
+    // Parse YYYY-MM-DD format
+    const yyyymmdd = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (yyyymmdd) {
+      const [, year, month, day] = yyyymmdd;
+      return `${day.padStart(2, "0")}-${month.padStart(2, "0")}-${year}`;
+    }
+
+    // If already in DD-MM-YYYY format, return as-is
+    return dateStr;
+  };
+
   const buildPayload = () => ({
     area: formState.area.trim(),
     vehicleNo: formState.vehicleNo.trim(),
     tankerType: formState.tankerType.trim(),
     transporterName: formState.transporterName.trim(),
-    reportDate: formState.reportDate,
+    reportDate: convertFromInputFormat(formState.reportDate),
     tripDistanceKm: formState.tripDistanceKm.trim(),
     tripCount: formState.tripCount ? Number(formState.tripCount) : 0,
   });
