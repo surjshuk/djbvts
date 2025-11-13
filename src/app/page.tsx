@@ -261,6 +261,56 @@ export default function ReportsPage() {
     setFilteredData(filtered);
   }
 
+  // Auto-update manual date fields based on month filter selection or filtered data
+  useEffect(() => {
+    if (filteredData.length === 0) {
+      setManualDateFrom("");
+      setManualDateTo("");
+      return;
+    }
+
+    // Calculate date range from filtered data
+    const dates = filteredData
+      .map(r => parseDateString(r.reportDate))
+      .filter((date): date is Date => date !== null)
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    if (dates.length === 0) {
+      setManualDateFrom("");
+      setManualDateTo("");
+      return;
+    }
+
+    const earliestDate = dates[0];
+    const latestDate = dates[dates.length - 1];
+
+    // If months are selected, use full month boundaries
+    // Otherwise, use exact date range from data
+    let startDate: Date;
+    let endDate: Date;
+
+    if (selectedMonths.length > 0) {
+      // Use first day of earliest month to last day of latest month
+      startDate = new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1);
+      endDate = new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 0);
+    } else {
+      // Use exact dates from data
+      startDate = earliestDate;
+      endDate = latestDate;
+    }
+
+    // Format as YYYY-MM-DD for date inputs
+    const formatForInput = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    setManualDateFrom(formatForInput(startDate));
+    setManualDateTo(formatForInput(endDate));
+  }, [filteredData, selectedMonths]);
+
   const startNewRow = () => {
     setEditingRowId(null);
     setFormState(EMPTY_FORM);
