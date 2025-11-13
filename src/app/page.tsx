@@ -595,8 +595,14 @@ export default function ReportsPage() {
       let rangeEnd: Date;
 
       if (manualDateFrom && manualDateTo) {
-        rangeStart = new Date(manualDateFrom);
-        rangeEnd = new Date(manualDateTo);
+        // Parse dates as local dates (not UTC) to avoid timezone shifting
+        const parseLocalDate = (dateStr: string): Date => {
+          const [year, month, day] = dateStr.split('-').map(Number);
+          return new Date(year, month - 1, day);
+        };
+
+        rangeStart = parseLocalDate(manualDateFrom);
+        rangeEnd = parseLocalDate(manualDateTo);
 
         if (isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime())) {
           throw new Error("Invalid date range specified.");
@@ -624,12 +630,20 @@ export default function ReportsPage() {
         throw new Error("Missing logged in user email");
       }
 
+      // Format dates as YYYY-MM-DD without timezone conversion
+      const formatDateForAPI = (date: Date): string => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      };
+
       const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dateFrom: rangeStart.toISOString().split("T")[0],
-          dateTo: rangeEnd.toISOString().split("T")[0],
+          dateFrom: formatDateForAPI(rangeStart),
+          dateTo: formatDateForAPI(rangeEnd),
           generatedByEmail: userEmail,
           filters: {
             vehicles: selectedVehicles,
