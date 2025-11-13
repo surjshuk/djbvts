@@ -49,7 +49,9 @@ export default function ReportsPage() {
   const [filteredData, setFilteredData] = useState<ReportRow[]>([]);
   const [vehicles, setVehicles] = useState<string[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
-  const [months, setMonths] = useState<string[]>([]);
+  const [years, setYears] = useState<string[]>([]);
+  const [months, setMonths] = useState<{year: string, month: string, label: string}[]>([]);
+  const [selectedYear, setSelectedYear] = useState<string>("all");
 
   const currentMonthKey = useMemo(() => {
     const now = new Date();
@@ -63,6 +65,10 @@ export default function ReportsPage() {
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
   const [monthSearch, setMonthSearch] = useState("");
+  const [yearSearch, setYearSearch] = useState("");
+
+  const [manualDateFrom, setManualDateFrom] = useState("");
+  const [manualDateTo, setManualDateTo] = useState("");
 
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -73,6 +79,7 @@ export default function ReportsPage() {
   const [formState, setFormState] = useState<ReportRowForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -154,7 +161,10 @@ export default function ReportsPage() {
   function extractFilterOptions(records: ReportRow[]) {
     const vehicleSet = new Set<string>();
     const areaSet = new Set<string>();
+    const yearSet = new Set<string>();
     const monthSet = new Set<string>();
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     records.forEach((r) => {
       if (r.vehicleNo) vehicleSet.add(r.vehicleNo);
@@ -162,7 +172,10 @@ export default function ReportsPage() {
       if (r.reportDate) {
         const date = parseDateString(r.reportDate);
         if (date) {
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+          const year = String(date.getFullYear());
+          const month = String(date.getMonth() + 1).padStart(2, "0");
+          const monthKey = `${year}-${month}`;
+          yearSet.add(year);
           monthSet.add(monthKey);
         }
       }
@@ -170,10 +183,24 @@ export default function ReportsPage() {
 
     const vehicleList = Array.from(vehicleSet).sort();
     const areaList = Array.from(areaSet).sort();
-    const monthList = Array.from(monthSet).sort().reverse();
+    const yearList = Array.from(yearSet).sort().reverse();
+
+    const monthList = Array.from(monthSet)
+      .sort()
+      .reverse()
+      .map(key => {
+        const [year, month] = key.split("-");
+        const monthIndex = parseInt(month) - 1;
+        return {
+          year,
+          month,
+          label: `${year} ${monthNames[monthIndex]}`
+        };
+      });
 
     setVehicles(vehicleList);
     setAreas(areaList);
+    setYears(yearList);
     setMonths(monthList);
 
     setSelectedVehicles((prev) => prev.filter((v) => vehicleSet.has(v)));
@@ -266,6 +293,75 @@ export default function ReportsPage() {
     } catch (error) {
       console.error(error);
       setFormError(error instanceof Error ? error.message : "Failed to delete row");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleRowSelection = (rowId: string) => {
+    setSelectedRows((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(rowId)) {
+        newSet.delete(rowId);
+      } else {
+        newSet.add(rowId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllRows = () => {
+    if (selectedRows.size === filteredData.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(filteredData.map((r) => r.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRows.size === 0) {
+      alert("Please select rows to delete");
+      return;
+    }
+
+    if (!userEmail) {
+      alert("Please sign in before modifying data.");
+      router.replace("/login");
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Are you sure you want to delete ${selectedRows.size} row(s)?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setSaving(true);
+    setPageError(null);
+
+    try {
+      const deletePromises = Array.from(selectedRows).map((id) =>
+        fetch("/api/reports/data", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, deletedBy: userEmail }),
+        })
+      );
+
+      const results = await Promise.all(deletePromises);
+      const failed = results.filter((r) => !r.ok);
+
+      if (failed.length > 0) {
+        throw new Error(`Failed to delete ${failed.length} row(s)`);
+      }
+
+      setSelectedRows(new Set());
+      await loadData();
+      alert(`Successfully deleted ${selectedRows.size} row(s)`);
+    } catch (error) {
+      console.error(error);
+      setPageError(error instanceof Error ? error.message : "Failed to delete rows");
     } finally {
       setSaving(false);
     }
@@ -369,9 +465,9 @@ export default function ReportsPage() {
     );
   };
 
-  const toggleMonthSelection = (value: string) => {
+  const toggleMonthSelection = (monthKey: string) => {
     setSelectedMonths((prev) =>
-      prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]
+      prev.includes(monthKey) ? prev.filter((m) => m !== monthKey) : [...prev, monthKey]
     );
   };
 
@@ -388,10 +484,21 @@ export default function ReportsPage() {
   }, [areas, areaSearch]);
 
   const filteredMonths = useMemo(() => {
-    if (!monthSearch.trim()) return months;
-    const search = monthSearch.toLowerCase();
-    return months.filter((m) => m.toLowerCase().includes(search));
-  }, [months, monthSearch]);
+    let filtered = months;
+
+    // Filter by selected year
+    if (selectedYear !== "all") {
+      filtered = filtered.filter((m) => m.year === selectedYear);
+    }
+
+    // Filter by search text
+    if (monthSearch.trim()) {
+      const search = monthSearch.toLowerCase();
+      filtered = filtered.filter((m) => m.label.toLowerCase().includes(search));
+    }
+
+    return filtered;
+  }, [months, selectedYear, monthSearch]);
 
   async function handleFileUpload(e) {
     const selectedFile = e.target.files?.[0];
@@ -446,18 +553,35 @@ export default function ReportsPage() {
     try {
       setGenerating(true);
 
-      // Determine date range
-      const dates = filteredData
-        .map(r => parseDateString(r.reportDate))
-        .filter((date): date is Date => date !== null)
-        .sort((a, b) => a.getTime() - b.getTime());
-      const dateFrom = dates[0];
-      const dateTo = dates[dates.length - 1];
-      if (!dateFrom || !dateTo) {
-        throw new Error("Filtered rows do not contain valid dates.");
+      // Determine date range - use manual dates if provided, otherwise auto-calculate
+      let rangeStart: Date;
+      let rangeEnd: Date;
+
+      if (manualDateFrom && manualDateTo) {
+        rangeStart = new Date(manualDateFrom);
+        rangeEnd = new Date(manualDateTo);
+
+        if (isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime())) {
+          throw new Error("Invalid date range specified.");
+        }
+
+        if (rangeStart > rangeEnd) {
+          throw new Error("Start date must be before end date.");
+        }
+      } else {
+        // Auto-calculate from filtered data
+        const dates = filteredData
+          .map(r => parseDateString(r.reportDate))
+          .filter((date): date is Date => date !== null)
+          .sort((a, b) => a.getTime() - b.getTime());
+        const dateFrom = dates[0];
+        const dateTo = dates[dates.length - 1];
+        if (!dateFrom || !dateTo) {
+          throw new Error("Filtered rows do not contain valid dates.");
+        }
+        rangeStart = new Date(dateFrom.getFullYear(), dateFrom.getMonth(), 1);
+        rangeEnd = new Date(dateTo.getFullYear(), dateTo.getMonth() + 1, 0);
       }
-      const rangeStart = new Date(dateFrom.getFullYear(), dateFrom.getMonth(), 1);
-      const rangeEnd = new Date(dateTo.getFullYear(), dateTo.getMonth() + 1, 0);
 
       if (!userEmail) {
         throw new Error("Missing logged in user email");
@@ -617,6 +741,16 @@ export default function ReportsPage() {
 
           <div>
             <span className="block text-sm font-medium text-gray-700 mb-1">Months</span>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full mb-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Years</option>
+              {years.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
             <input
               type="text"
               placeholder="Search months..."
@@ -633,19 +767,46 @@ export default function ReportsPage() {
                 />
                 <span>All Months</span>
               </label>
-              {filteredMonths.map((m) => (
-                <label key={m} className="flex items-center gap-2 px-3 py-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedMonths.includes(m)}
-                    onChange={() => toggleMonthSelection(m)}
-                  />
-                  <span>
-                    {m}
-                    {m === currentMonthKey ? " (current)" : ""}
-                  </span>
-                </label>
-              ))}
+              {filteredMonths.map((m) => {
+                const monthKey = `${m.year}-${m.month}`;
+                return (
+                  <label key={monthKey} className="flex items-center gap-2 px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedMonths.includes(monthKey)}
+                      onChange={() => toggleMonthSelection(monthKey)}
+                    />
+                    <span>
+                      {m.label}
+                      {monthKey === currentMonthKey ? " (current)" : ""}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 border-t pt-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">PDF Date Range (Optional - leave empty for auto)</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">From Date</label>
+              <input
+                type="date"
+                value={manualDateFrom}
+                onChange={(e) => setManualDateFrom(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">To Date</label>
+              <input
+                type="date"
+                value={manualDateTo}
+                onChange={(e) => setManualDateTo(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
         </div>
@@ -667,8 +828,20 @@ export default function ReportsPage() {
       {/* Data Table */}
       <div className="border rounded-lg bg-white shadow overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <span className="text-sm text-gray-700">{filteredData.length} rows selected</span>
+          <span className="text-sm text-gray-700">
+            {selectedRows.size > 0 ? `${selectedRows.size} of ${filteredData.length} rows selected` : `${filteredData.length} rows`}
+          </span>
           <div className="flex items-center gap-2">
+            {selectedRows.size > 0 && (
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={saving || loading}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Delete Selected ({selectedRows.size})
+              </button>
+            )}
             <button
               type="button"
               onClick={startNewRow}
@@ -679,59 +852,8 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">S.No</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Area</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle No.</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tanker Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transporter</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Report Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distance</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trips</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredData.map((row, idx) => (
-                <tr key={row.id} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                  <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                  <td className="px-4 py-3 text-sm">{row.area}</td>
-                  <td className="px-4 py-3 text-sm font-medium">{row.vehicleNo}</td>
-                  <td className="px-4 py-3 text-sm">{row.tankerType}</td>
-                  <td className="px-4 py-3 text-sm">{row.transporterName}</td>
-                  <td className="px-4 py-3 text-sm">{formatDisplayDate(row.reportDate)}</td>
-                  <td className="px-4 py-3 text-sm">{row.tripDistanceKm}</td>
-                  <td className="px-4 py-3 text-sm">{row.tripCount}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => startEditRow(row)}
-                        disabled={saving}
-                        className="px-2 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteRow(row)}
-                        disabled={saving}
-                        className="px-2 py-1 text-xs font-medium text-red-600 border border-red-600 rounded hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
         {isFormOpen && (
-          <div className="border-t border-gray-200 bg-white">
+          <div className="border-b border-gray-200 bg-gray-50">
             <form onSubmit={handleFormSubmit} className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-800">
@@ -830,6 +952,73 @@ export default function ReportsPage() {
             </form>
           </div>
         )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedRows.size === filteredData.length && filteredData.length > 0}
+                    onChange={toggleAllRows}
+                    className="rounded border-gray-300"
+                  />
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">S.No</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Area</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle No.</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tanker Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transporter</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Report Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distance</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trips</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredData.map((row, idx) => (
+                <tr key={row.id} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.has(row.id)}
+                      onChange={() => toggleRowSelection(row.id)}
+                      className="rounded border-gray-300"
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-sm">{idx + 1}</td>
+                  <td className="px-4 py-3 text-sm">{row.area}</td>
+                  <td className="px-4 py-3 text-sm font-medium">{row.vehicleNo}</td>
+                  <td className="px-4 py-3 text-sm">{row.tankerType}</td>
+                  <td className="px-4 py-3 text-sm">{row.transporterName}</td>
+                  <td className="px-4 py-3 text-sm">{formatDisplayDate(row.reportDate)}</td>
+                  <td className="px-4 py-3 text-sm">{row.tripDistanceKm}</td>
+                  <td className="px-4 py-3 text-sm">{row.tripCount}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditRow(row)}
+                        disabled={saving}
+                        className="px-2 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRow(row)}
+                        disabled={saving}
+                        className="px-2 py-1 text-xs font-medium text-red-600 border border-red-600 rounded hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </main>
   );

@@ -127,22 +127,34 @@ function toTripCount(value: unknown): number {
   return Number.isNaN(num) ? 0 : num;
 }
 
+/**
+ * Parse all sheets from an Excel workbook
+ * @param file - Excel file to parse
+ * @returns Array of parsed rows from all sheets
+ */
 async function parseWorkbook(file: File): Promise<ParsedRow[]> {
   const XLSX = await import("xlsx");
   const buffer = Buffer.from(await file.arrayBuffer());
 
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!worksheet) {
-    throw new Error("No worksheet found in uploaded file");
+
+  if (workbook.SheetNames.length === 0) {
+    throw new Error("No worksheets found in uploaded file");
   }
 
-  const table = XLSX.utils.sheet_to_json<(string | number | Date)[]>(worksheet, {
-    header: 1,
-    raw: false,
-    defval: "",
-    blankrows: false,
-  });
+  const allRecords: ParsedRow[] = [];
+
+  // Iterate through all sheets in the workbook
+  for (const sheetName of workbook.SheetNames) {
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) continue;
+
+    const table = XLSX.utils.sheet_to_json<(string | number | Date)[]>(worksheet, {
+      header: 1,
+      raw: false,
+      defval: "",
+      blankrows: false,
+    });
   
   const normalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const findColumn = (headers: string[], candidates: string[]) => {
@@ -264,7 +276,11 @@ async function parseWorkbook(file: File): Promise<ParsedRow[]> {
     });
   }
 
-  return records;
+    // Add records from this sheet to the collection
+    allRecords.push(...records);
+  }
+
+  return allRecords;
 }
 
 export async function GET(_req: NextRequest) {

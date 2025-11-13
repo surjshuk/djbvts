@@ -131,12 +131,22 @@ export async function POST(req: NextRequest) {
 
     const where = buildWhereClause(dateFrom, dateTo, normalizedFilters);
 
-    const rows = await prisma.report.findMany({
+    let rows = await prisma.report.findMany({
       where,
       orderBy: [
         { vehicleNo: "asc" },
         { reportDate: "asc" },
       ],
+    });
+
+    // Filter by date range in memory since we're using DD-MM-YYYY format
+    const fromDate = new Date(dateFrom);
+    const toDate = new Date(dateTo);
+
+    rows = rows.filter((row) => {
+      const rowDate = parseDDMMYYYY(row.reportDate);
+      if (!rowDate) return false;
+      return rowDate >= fromDate && rowDate <= toDate;
     });
 
     if (rows.length === 0) {
@@ -213,11 +223,36 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Convert YYYY-MM-DD to DD-MM-YYYY format for comparison
+ */
+function convertToComparableFormat(isoDate: string): string {
+  const [year, month, day] = isoDate.split("-");
+  return `${day}-${month}-${year}`;
+}
+
+/**
+ * Parse DD-MM-YYYY string to Date object for comparison
+ */
+function parseDDMMYYYY(dateStr: string): Date | null {
+  const parts = dateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (!parts) return null;
+  const [, day, month, year] = parts;
+  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+}
+
 function buildWhereClause(dateFrom: string, dateTo: string, filters: NormalizedFilters): Prisma.ReportWhereInput {
-  const clauses: Prisma.ReportWhereInput[] = [
-    { reportDate: { gte: dateFrom } },
-    { reportDate: { lte: dateTo } },
-  ];
+  const clauses: Prisma.ReportWhereInput[] = [];
+
+  // Convert ISO dates to DD-MM-YYYY for comparison
+  const fromDateDDMMYYYY = convertToComparableFormat(dateFrom);
+  const toDateDDMMYYYY = convertToComparableFormat(dateTo);
+
+  // For date range filtering with DD-MM-YYYY format, we need to fetch all records
+  // and filter them in memory, or we can use a raw query
+  // For now, we'll apply date filtering after fetching
+  // clauses.push({ reportDate: { gte: fromDateDDMMYYYY } });
+  // clauses.push({ reportDate: { lte: toDateDDMMYYYY } });
 
   if (filters.vehicles.length > 0) {
     clauses.push({ vehicleNo: { in: filters.vehicles } });
@@ -230,10 +265,10 @@ function buildWhereClause(dateFrom: string, dateTo: string, filters: NormalizedF
   if (filters.months.length > 0) {
     clauses.push({
       OR: filters.months.map((month) => ({
-        reportDate: { startsWith: `${month}-` },
+        reportDate: { contains: `-${month}-` },
       })),
     });
   }
 
-  return { AND: clauses };
+  return clauses.length > 0 ? { AND: clauses } : {};
 }
