@@ -59,7 +59,11 @@ export default function ReportsPage() {
   const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
   const [selectedArea, setSelectedArea] = useState("all");
   const [selectedMonths, setSelectedMonths] = useState<string[]>(() => [currentMonthKey]);
-  
+
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [areaSearch, setAreaSearch] = useState("");
+  const [monthSearch, setMonthSearch] = useState("");
+
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -86,10 +90,24 @@ export default function ReportsPage() {
     }
   }, [router]);
 
+  const parseDateString = (value: string): Date | null => {
+    if (!value) return null;
+
+    const ddmmyyyy = value.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (ddmmyyyy) {
+      const [, day, month, year] = ddmmyyyy;
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      return Number.isNaN(date.valueOf()) ? null : date;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.valueOf()) ? null : date;
+  };
+
   const formatDisplayDate = (value: string) => {
     if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.valueOf())) return value;
+    const date = parseDateString(value);
+    if (!date) return value;
     const dd = String(date.getDate()).padStart(2, "0");
     const mm = String(date.getMonth() + 1).padStart(2, "0");
     const yy = date.getFullYear();
@@ -142,8 +160,8 @@ export default function ReportsPage() {
       if (r.vehicleNo) vehicleSet.add(r.vehicleNo);
       if (r.area) areaSet.add(r.area);
       if (r.reportDate) {
-        const date = new Date(r.reportDate);
-        if (!Number.isNaN(date.valueOf())) {
+        const date = parseDateString(r.reportDate);
+        if (date) {
           const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
           monthSet.add(monthKey);
         }
@@ -188,8 +206,8 @@ export default function ReportsPage() {
     if (selectedMonths.length > 0) {
       filtered = filtered.filter((r) => {
         if (!r.reportDate) return false;
-        const date = new Date(r.reportDate);
-        if (Number.isNaN(date.valueOf())) return false;
+        const date = parseDateString(r.reportDate);
+        if (!date) return false;
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
         return selectedMonths.includes(monthKey);
       });
@@ -270,20 +288,36 @@ export default function ReportsPage() {
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
+  const validateForm = (): string | null => {
+    if (!formState.area.trim()) {
+      return "Area is required.";
+    }
+    if (!formState.vehicleNo.trim()) {
+      return "Vehicle number is required.";
+    }
+    if (!formState.reportDate) {
+      return "Report date is required.";
+    }
+    return null;
+  };
+
+  const buildPayload = () => ({
+    area: formState.area.trim(),
+    vehicleNo: formState.vehicleNo.trim(),
+    tankerType: formState.tankerType.trim(),
+    transporterName: formState.transporterName.trim(),
+    reportDate: formState.reportDate,
+    tripDistanceKm: formState.tripDistanceKm.trim(),
+    tripCount: formState.tripCount ? Number(formState.tripCount) : 0,
+  });
+
   const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
 
-    if (!formState.area.trim()) {
-      setFormError("Area is required.");
-      return;
-    }
-    if (!formState.vehicleNo.trim()) {
-      setFormError("Vehicle number is required.");
-      return;
-    }
-    if (!formState.reportDate) {
-      setFormError("Report date is required.");
+    const validationError = validateForm();
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
 
@@ -293,16 +327,7 @@ export default function ReportsPage() {
       return;
     }
 
-    const payload = {
-      area: formState.area.trim(),
-      vehicleNo: formState.vehicleNo.trim(),
-      tankerType: formState.tankerType.trim(),
-      transporterName: formState.transporterName.trim(),
-      reportDate: formState.reportDate,
-      tripDistanceKm: formState.tripDistanceKm.trim(),
-      tripCount: formState.tripCount ? Number(formState.tripCount) : 0,
-    };
-
+    const payload = buildPayload();
     setSaving(true);
 
     try {
@@ -349,6 +374,24 @@ export default function ReportsPage() {
       prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]
     );
   };
+
+  const filteredVehicles = useMemo(() => {
+    if (!vehicleSearch.trim()) return vehicles;
+    const search = vehicleSearch.toLowerCase();
+    return vehicles.filter((v) => v.toLowerCase().includes(search));
+  }, [vehicles, vehicleSearch]);
+
+  const filteredAreas = useMemo(() => {
+    if (!areaSearch.trim()) return areas;
+    const search = areaSearch.toLowerCase();
+    return areas.filter((a) => a.toLowerCase().includes(search));
+  }, [areas, areaSearch]);
+
+  const filteredMonths = useMemo(() => {
+    if (!monthSearch.trim()) return months;
+    const search = monthSearch.toLowerCase();
+    return months.filter((m) => m.toLowerCase().includes(search));
+  }, [months, monthSearch]);
 
   async function handleFileUpload(e) {
     const selectedFile = e.target.files?.[0];
@@ -405,8 +448,8 @@ export default function ReportsPage() {
 
       // Determine date range
       const dates = filteredData
-        .map(r => new Date(r.reportDate))
-        .filter(date => !Number.isNaN(date.valueOf()))
+        .map(r => parseDateString(r.reportDate))
+        .filter((date): date is Date => date !== null)
         .sort((a, b) => a.getTime() - b.getTime());
       const dateFrom = dates[0];
       const dateTo = dates[dates.length - 1];
@@ -510,6 +553,13 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <span className="block text-sm font-medium text-gray-700 mb-1">Vehicle Numbers</span>
+            <input
+              type="text"
+              placeholder="Search vehicles..."
+              value={vehicleSearch}
+              onChange={(e) => setVehicleSearch(e.target.value)}
+              className="w-full mb-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             <div className="border border-gray-300 rounded-md bg-gray-50 divide-y divide-gray-200 max-h-48 overflow-y-auto">
               <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700">
                 <input
@@ -519,7 +569,7 @@ export default function ReportsPage() {
                 />
                 <span>All Vehicles</span>
               </label>
-              {vehicles.map((v) => (
+              {filteredVehicles.map((v) => (
                 <label key={v} className="flex items-center gap-2 px-3 py-2 text-sm">
                   <input
                     type="checkbox"
@@ -533,21 +583,47 @@ export default function ReportsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Area</label>
-            <select
-              value={selectedArea}
-              onChange={(e) => setSelectedArea(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Areas</option>
-              {areas.map(a => (
-                <option key={a} value={a}>{a}</option>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Area</span>
+            <input
+              type="text"
+              placeholder="Search areas..."
+              value={areaSearch}
+              onChange={(e) => setAreaSearch(e.target.value)}
+              className="w-full mb-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div className="border border-gray-300 rounded-md bg-gray-50 divide-y divide-gray-200 max-h-48 overflow-y-auto">
+              <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="area"
+                  checked={selectedArea === "all"}
+                  onChange={() => setSelectedArea("all")}
+                />
+                <span>All Areas</span>
+              </label>
+              {filteredAreas.map((a) => (
+                <label key={a} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <input
+                    type="radio"
+                    name="area"
+                    checked={selectedArea === a}
+                    onChange={() => setSelectedArea(a)}
+                  />
+                  <span>{a}</span>
+                </label>
               ))}
-            </select>
+            </div>
           </div>
 
           <div>
             <span className="block text-sm font-medium text-gray-700 mb-1">Months</span>
+            <input
+              type="text"
+              placeholder="Search months..."
+              value={monthSearch}
+              onChange={(e) => setMonthSearch(e.target.value)}
+              className="w-full mb-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             <div className="border border-gray-300 rounded-md bg-gray-50 divide-y divide-gray-200 max-h-48 overflow-y-auto">
               <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700">
                 <input
@@ -557,7 +633,7 @@ export default function ReportsPage() {
                 />
                 <span>All Months</span>
               </label>
-              {months.map((m) => (
+              {filteredMonths.map((m) => (
                 <label key={m} className="flex items-center gap-2 px-3 py-2 text-sm">
                   <input
                     type="checkbox"

@@ -1,16 +1,27 @@
 // src/lib/report-pdf.ts
+/**
+ * PDF Report Generation Module
+ *
+ * This module handles the generation of Daily Distance Reports in PDF format.
+ * Features:
+ * - Custom page size (297 × 241 mm)
+ * - 21 rows per page
+ * - QR code for verification
+ * - Company logo
+ * - Alternating row colors for readability
+ * - Multi-page support with pagination
+ */
+
 import { promises as fs } from "fs";
 import QRCode from "qrcode";
 
-// convert mm → pt (1 inch = 25.4 mm, 1 inch = 72 pt)
-const mmToPt = (mm: number) => (mm * 72) / 25.4;
-
-// Base custom page size: 297 × 241 mm
-const PAGE_WIDTH_PT = mmToPt(297);
-const BASE_PAGE_HEIGHT_PT = mmToPt(241);
-const ROWS_PER_PAGE = 21;
-const ROW_HEIGHT_PT = 18;
-const FOOTER_GAP_PT = 6; // Change this gap to adjust spacing between table rows and footer
+// Constants for PDF Layout
+const mmToPt = (mm: number) => (mm * 72) / 25.4; // Convert mm to points (1 inch = 25.4 mm, 1 inch = 72 pt)
+const PAGE_WIDTH_PT = mmToPt(297);              // Custom page width
+const BASE_PAGE_HEIGHT_PT = mmToPt(241);        // Custom page height
+const ROWS_PER_PAGE = 21;                       // Number of data rows per page
+const ROW_HEIGHT_PT = 18;                       // Height of each table row
+const FOOTER_GAP_PT = 6;                        // Gap between table and footer
 
 type Row = {
   area: string;
@@ -22,8 +33,13 @@ type Row = {
   tripCount: number;
 };
 
+// Cache for logo to avoid repeated file reads
 let cachedLogo: Buffer | null = null;
 
+/**
+ * Load and cache the company logo
+ * @returns Buffer containing the logo image
+ */
 async function loadLogoBuffer(): Promise<Buffer> {
   if (cachedLogo) return cachedLogo;
   const fileUrl = new URL("./image.png", import.meta.url);
@@ -31,13 +47,30 @@ async function loadLogoBuffer(): Promise<Buffer> {
   return cachedLogo;
 }
 
-function fmtDate(d: Date) {
+/**
+ * Format date as DD-MM-YYYY
+ * @param d Date object
+ * @returns Formatted date string
+ */
+function fmtDate(d: Date): string {
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yy = d.getFullYear();
   return `${dd}-${mm}-${yy}`;
 }
 
+/**
+ * Build a PDF report for daily distance tracking
+ *
+ * @param title - Report title
+ * @param dateFrom - Start date of the report period
+ * @param dateTo - End date of the report period
+ * @param generatedAt - Timestamp when the report was generated
+ * @param generatedByEmail - Email of the user who generated the report
+ * @param rows - Array of report data rows
+ * @param verificationUrl - URL for QR code verification
+ * @returns Promise<Buffer> - PDF file as a buffer
+ */
 export async function buildReportPdf({
   title,
   dateFrom,
@@ -57,15 +90,18 @@ export async function buildReportPdf({
 }): Promise<Buffer> {
   const { default: PDFDocument } = await import("pdfkit");
 
+  // Initialize PDF document
   const doc = new PDFDocument({
     size: [PAGE_WIDTH_PT, BASE_PAGE_HEIGHT_PT],
     margin: 20,
   });
 
+  // Collect PDF chunks as they're generated
   const chunks: Buffer[] = [];
   doc.on("data", (c) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 
+  // Define table column structure
   const columns = [
     { label: "S.No", width: 40 },
     { label: "Area", width: 80 },
@@ -77,10 +113,15 @@ export async function buildReportPdf({
     { label: "Trip Count", width: 70 },
   ];
 
+  // Calculate totals for summary
   const totalKm = rows.reduce((sum, r) => {
     const numericDistance = parseFloat(r.tripDistanceKm);
     return sum + (Number.isFinite(numericDistance) ? numericDistance : 0);
   }, 0).toFixed(2);
+
+  const totalTrips = rows.reduce((sum, r) => {
+    return sum + (Number.isFinite(r.tripCount) ? r.tripCount : 0);
+  }, 0);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
   const firstRow = rows[0];
@@ -162,7 +203,7 @@ export async function buildReportPdf({
         firstRow?.transporterName || "",
         `${fmtDate(dateFrom)} - ${fmtDate(dateTo)}`,
         `${totalKm} km`,
-        String(rows.length),
+        String(totalTrips),
       ];
 
       x = left + 3;

@@ -1,3 +1,13 @@
+/**
+ * Report Data API Route
+ *
+ * Handles CRUD operations for report data:
+ * - GET: Retrieve all reports
+ * - POST: Create new report (single or batch upload from XLSX)
+ * - PATCH: Update existing report
+ * - DELETE: Delete a report
+ */
+
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -9,14 +19,19 @@ type ParsedRow = {
   area: string;
   tankerType: string;
   transporterName: string;
-  reportDate: string; // ISO (YYYY-MM-DD)
+  reportDate: string; // Format: DD-MM-YYYY
   tripDistanceKm: string;
   tripCount: number;
 };
 
-const KM_MATCHER = /[-+]?[0-9]*\.?[0-9]+/;
-const UPSERT_BATCH_SIZE = 50;
+// Constants
+const KM_MATCHER = /[-+]?[0-9]*\.?[0-9]+/;  // Regex to extract numeric distance values
+const UPSERT_BATCH_SIZE = 50;                // Number of records per database transaction
 
+/**
+ * Split an array into chunks of specified size
+ * Used for batch processing database operations
+ */
 function chunkArray<T>(items: T[], size: number): T[][] {
   if (size <= 0) return [items];
   const batches: T[][] = [];
@@ -26,6 +41,17 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return batches;
 }
 
+/**
+ * Normalize various date formats to DD-MM-YYYY
+ * Supports:
+ * - DD/MM/YYYY or DD-MM-YYYY formats
+ * - Excel serial dates (numeric values)
+ * - ISO date strings
+ * - Date objects
+ *
+ * @param input - Date in various formats
+ * @returns Normalized date string (DD-MM-YYYY) or null if invalid
+ */
 function normaliseDate(input: unknown): string | null {
   if (!input) return null;
 
@@ -71,6 +97,13 @@ function normaliseDate(input: unknown): string | null {
   return null;
 }
 
+/**
+ * Convert distance value to standardized string format
+ * Extracts numeric value and formats as "X.XX km"
+ *
+ * @param value - Distance value (can be string like "123.45 km" or number)
+ * @returns Formatted distance string (e.g., "123.45 km")
+ */
 function toDistanceString(value: unknown): string {
   if (value === null || value === undefined) return "0 km";
   const raw = String(value);
@@ -81,6 +114,13 @@ function toDistanceString(value: unknown): string {
   return `${num.toFixed(2)} km`;
 }
 
+/**
+ * Convert trip count value to integer
+ * Removes non-numeric characters and parses as integer
+ *
+ * @param value - Trip count value
+ * @returns Integer trip count (defaults to 0 if invalid)
+ */
 function toTripCount(value: unknown): number {
   if (value === null || value === undefined) return 0;
   const num = Number.parseInt(String(value).replace(/[^0-9-]/g, ""), 10);

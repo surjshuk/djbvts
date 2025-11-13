@@ -8,6 +8,7 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [developerCode, setDeveloperCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +21,11 @@ export default function SignupPage() {
       return;
     }
 
+    if (!developerCode.trim()) {
+      setError("Developer code is required");
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await fetch("/api/signup", {
@@ -29,6 +35,7 @@ export default function SignupPage() {
           name: name.trim() || undefined,
           email: email.trim(),
           password,
+          developerCode: developerCode.trim(),
         }),
       });
 
@@ -95,6 +102,21 @@ export default function SignupPage() {
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Create a password"
               autoComplete="new-password"
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="developerCode" className="block text-sm font-medium text-gray-700 mb-2">
+              Developer Code
+            </label>
+            <input
+              id="developerCode"
+              type="text"
+              value={developerCode}
+              onChange={(event) => setDeveloperCode(event.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter developer code"
               required
             />
           </div>
