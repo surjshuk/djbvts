@@ -42,21 +42,21 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Normalize various date formats to DD-MM-YYYY
- * Supports:
- * - DD/MM/YYYY or DD-MM-YYYY formats
- * - Excel serial dates (numeric values)
- * - ISO date strings
- * - Date objects
- *
- * @param input - Date in various formats
- * @returns Normalized date string (DD-MM-YYYY) or null if invalid
+ * Normalizes any date input to DD-MM-YYYY format for consistent storage
+ * Handles: Date objects, Excel numbers, DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, ISO strings
+ * Filters out summary rows (containing " - ")
+ * @param input - Date in any format
+ * @returns Date string in DD-MM-YYYY format with zero-padded day/month, or null if invalid
  */
 function normaliseDate(input: unknown): string | null {
   if (!input) return null;
 
+  // Handle Date objects - convert to DD-MM-YYYY
   if (input instanceof Date && !Number.isNaN(input.valueOf())) {
-    return input.toISOString().split("T")[0];
+    const day = String(input.getDate()).padStart(2, "0");
+    const month = String(input.getMonth() + 1).padStart(2, "0");
+    const year = String(input.getFullYear());
+    return `${day}-${month}-${year}`;
   }
 
   const raw = String(input).trim();
@@ -67,14 +67,18 @@ function normaliseDate(input: unknown): string | null {
     return null;
   }
 
-  // Excel may serialise dates as numbers
+  // Excel may serialise dates as numbers - convert to DD-MM-YYYY
   const asNumber = Number(raw);
   if (!Number.isNaN(asNumber) && raw.length <= 5) {
     const excelEpoch = new Date(Date.UTC(1899, 11, 30));
     const date = new Date(excelEpoch.getTime() + asNumber * 24 * 60 * 60 * 1000);
-    return date.toISOString().split("T")[0];
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const year = String(date.getUTCFullYear());
+    return `${day}-${month}-${year}`;
   }
 
+  // Handle DD-MM-YYYY or DD/MM/YYYY format
   const segments = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
   if (segments) {
     const day = segments[1].padStart(2, "0");
@@ -83,15 +87,25 @@ function normaliseDate(input: unknown): string | null {
     if (year.length === 2) {
       year = Number(year) >= 70 ? `19${year}` : `20${year}`;
     }
-
-    console.log(`${year}-${month}-${day}`)
     return `${day}-${month}-${year}`;
   }
 
-  // Attempt native parsing as fallback
+  // Handle ISO YYYY-MM-DD format - convert to DD-MM-YYYY
+  const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const year = isoMatch[1];
+    const month = isoMatch[2].padStart(2, "0");
+    const day = isoMatch[3].padStart(2, "0");
+    return `${day}-${month}-${year}`;
+  }
+
+  // Attempt native parsing as fallback - convert to DD-MM-YYYY
   const parsed = new Date(raw);
   if (!Number.isNaN(parsed.valueOf())) {
-    return parsed.toISOString().split("T")[0];
+    const day = String(parsed.getDate()).padStart(2, "0");
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const year = String(parsed.getFullYear());
+    return `${day}-${month}-${year}`;
   }
 
   return null;

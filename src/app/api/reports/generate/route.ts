@@ -269,23 +269,34 @@ function buildWhereClause(dateFrom: string, dateTo: string, filters: NormalizedF
   if (filters.months.length > 0) {
     clauses.push({
       OR: filters.months.flatMap((monthKey) => {
-        // monthKey is in format "YYYY-MM", extract just the "MM" part
-        // to match against DD-MM-YYYY format (e.g., "01-08-2025" or "01-8-2025")
-        const parts = monthKey.split("-");
-        if (parts.length < 2) return [];
+        // monthKey is in format "YYYY-MM" (e.g., "2025-08")
+        // Need to match both date formats that may exist in DB:
+        // 1. DD-MM-YYYY (e.g., "01-08-2025") - new format
+        // 2. YYYY-MM-DD (e.g., "2025-08-01") - legacy format
 
+        const parts = monthKey.split("-");
+        if (parts.length !== 2) return [];
+
+        const year = parts[0];
         const month = parts[1];
         const monthInt = parseInt(month, 10);
         if (isNaN(monthInt)) return [];
 
-        // Handle both single-digit (e.g., "-8-") and double-digit (e.g., "-08-") month formats
         const patterns = [];
-        patterns.push({ reportDate: { contains: `-${month}-` } }); // Original format "08"
+
+        // Match DD-MM-YYYY format: "-08-2025" (primary format)
+        patterns.push({ reportDate: { contains: `-${month}-${year}` } });
+
+        // Match DD-M-YYYY format: "-8-2025" (unpadded month)
         if (month.startsWith("0")) {
-          patterns.push({ reportDate: { contains: `-${monthInt}-` } }); // Single digit "8"
-        } else {
-          patterns.push({ reportDate: { contains: `-${month.padStart(2, "0")}-` } }); // Padded "08"
+          patterns.push({ reportDate: { contains: `-${monthInt}-${year}` } });
         }
+
+        // Match YYYY-MM-DD format: "2025-08-" (legacy format)
+        patterns.push({ reportDate: { startsWith: `${year}-${month}-` } });
+
+        // Match YYYY-M-DD format: "2025-8-" (legacy unpadded)
+        patterns.push({ reportDate: { startsWith: `${year}-${monthInt}-` } });
 
         return patterns;
       }),
