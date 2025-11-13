@@ -6,6 +6,8 @@ import { prisma } from "../../../../lib/prisma";
 import { buildReportPdf } from "../../../../lib/report-pdf";
 import { ensureUserByEmail } from "../../../../lib/users";
 
+export const dynamic = 'force-dynamic';
+
 const KM_MATCHER = /[-+]?[0-9]*\.?[0-9]+/;
 
 type Filters = {
