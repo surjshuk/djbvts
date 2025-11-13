@@ -268,9 +268,14 @@ function buildWhereClause(dateFrom: string, dateTo: string, filters: NormalizedF
 
   if (filters.months.length > 0) {
     clauses.push({
-      OR: filters.months.map((month) => ({
-        reportDate: { contains: `-${month}-` },
-      })),
+      OR: filters.months.map((monthKey) => {
+        // monthKey is in format "YYYY-MM", extract just the "MM" part
+        // to match against DD-MM-YYYY format (e.g., "01-08-2025")
+        const month = monthKey.split("-")[1];
+        return {
+          reportDate: { contains: `-${month}-` },
+        };
+      }),
     });
   }
 
