@@ -8,7 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@prisma/client": "^6.17.1",
+    "@prisma/client": "^6.19.0",
     "bcrypt": "^6.0.0",
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^3.0.3",
@@ -25,7 +25,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "24.7.2",
     "@types/react": "19.2.2",
-    "prisma": "^6.17.1",
+    "prisma": "^6.19.0",
     "tailwindcss": "^4",
     "typescript": "5.9.3"
   }
