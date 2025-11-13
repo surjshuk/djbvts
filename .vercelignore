@@ -1,0 +1,4 @@
+# Ignore build artifacts
+.next
+node_modules
+.env*.local

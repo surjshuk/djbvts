@@ -6,7 +6,9 @@ import { prisma } from "../../../../lib/prisma";
 import { buildReportPdf } from "../../../../lib/report-pdf";
 import { ensureUserByEmail } from "../../../../lib/users";
 
+// Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const KM_MATCHER = /[-+]?[0-9]*\.?[0-9]+/;
 
