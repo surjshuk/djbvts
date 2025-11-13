@@ -128,7 +128,21 @@ export async function buildReportPdf({
   const logoBuffer = await loadLogoBuffer();
   const qrDataUrl = await QRCode.toDataURL(verificationUrl, { width: 200 });
   const qrBuf = Buffer.from(qrDataUrl.split(",")[1], "base64");
-  const genTime = generatedAt.toTimeString().slice(0, 8);
+
+  // Format time in IST (India Standard Time, UTC+5:30)
+  const formatTimeIST = (date: Date): string => {
+    // Convert to IST by adding 5 hours and 30 minutes to UTC
+    const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+    const istTime = new Date(date.getTime() + istOffset);
+
+    const hours = String(istTime.getUTCHours()).padStart(2, '0');
+    const minutes = String(istTime.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(istTime.getUTCSeconds()).padStart(2, '0');
+
+    return `${hours}:${minutes}:${seconds}`;
+  };
+
+  const genTime = formatTimeIST(generatedAt);
   const genTimeFooter = genTime;
 
   const drawFirstPageHeader = () => {
